@@ -1,6 +1,6 @@
-from btcp_socket import BTCPSocket, BTCPStates, BTCPSignals
-from lossy_layer import LossyLayer
-from constants import *
+from btcp.btcp_socket import BTCPSocket, BTCPStates, BTCPSignals
+from btcp.lossy_layer import LossyLayer
+from btcp.constants import *
 
 import queue
 import time
@@ -189,16 +189,22 @@ class BTCPServerSocket(BTCPSocket):
         logger.info("This needs to be properly implemented. "
                     "Currently only here for demonstration purposes.")
 
-
     def _other_segment_received(self, segment):
         """Helper method handling received segment in any other state
 
         Currently solely for demonstration purposes.
         """
         logger.debug("_other_segment_received called")
-        logger.info("Segment received in %s state",
-                    self._state)
-
+        try:
+            # Extract the data portion of the segment
+            data_start = HEADER_SIZE  # Assuming the header size is known
+            data = segment[data_start:]
+            # Put the data into the receive buffer
+            self._recvbuf.put(data, block=True, timeout=None)  # Blocking until there's space in the buffer
+        except queue.Full:
+            logger.error("Receive buffer is full. Dropping data.")
+        except Exception as e:
+            logger.error(f"Error processing received segment: {e}")
 
     def lossy_layer_tick(self):
         """Called by the lossy layer whenever no segment has arrived for
@@ -222,9 +228,8 @@ class BTCPServerSocket(BTCPSocket):
         lossy_layer_segment_received or lossy_layer_tick.
         """
         logger.debug("lossy_layer_tick called")
-        self._start_example_timer()
         self._expire_timers()
-        raise NotImplementedError("No implementation of lossy_layer_tick present. Read the comments & code of server_socket.py.")
+        #raise NotImplementedError("No implementation of lossy_layer_tick present. Read the comments & code of server_socket.py.")
 
 
     # The following two functions show you how you could implement a (fairly
@@ -248,8 +253,10 @@ class BTCPServerSocket(BTCPSocket):
         if not self._example_timer:
             logger.debug("Example timer not running.")
         elif curtime - self._example_timer > self._timeout * 1_000_000:
-            logger.debug("Example timer elapsed.")
-            self._example_timer = None
+            logger.debug("Example timer elapsed. Connection or transmission timed out.")
+            # Take appropriate action here, such as closing the connection or retransmitting data
+            self.close()  # For example, close the connection
+            # Or trigger retransmission
         else:
             logger.debug("Example timer not yet elapsed.")
 
@@ -306,6 +313,7 @@ class BTCPServerSocket(BTCPSocket):
         """
         logger.debug("accept called")
         self._state = BTCPStates.ESTABLISHED
+        self._start_example_timer()
 
         #   raise NotImplementedError("No implementation of accept present. Read the comments & code of server_socket.py.")
 
