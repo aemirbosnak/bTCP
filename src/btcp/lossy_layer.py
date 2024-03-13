@@ -37,11 +37,16 @@ def handle_incoming_segments(btcp_socket, event, udp_socket):
 
     Students should NOT need to modify any code in this method.
     """
+
     logger.info("Starting handle_incoming_segments")
+
     while not event.is_set():
+
         try:
             # We do not block here, because we might never check the loop condition in that case
-            rlist, wlist, elist = select.select([udp_socket], [], [], TIMER_TICK / 1000)
+
+            rlist, wlist, elist = select.select([udp_socket], [], [])
+            raise NotImplementedError("")
             if rlist:
                 segment, address = udp_socket.recvfrom(SEGMENT_SIZE)
                 btcp_socket.lossy_layer_segment_received(segment)

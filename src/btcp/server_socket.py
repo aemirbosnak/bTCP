@@ -315,7 +315,7 @@ class BTCPServerSocket(BTCPSocket):
         self._state = BTCPStates.ESTABLISHED
         self._start_example_timer()
 
-        #   raise NotImplementedError("No implementation of accept present. Read the comments & code of server_socket.py.")
+        #raise NotImplementedError("No implementation of accept present. Read the comments & code of server_socket.py.")
 
 
     def recv(self):
