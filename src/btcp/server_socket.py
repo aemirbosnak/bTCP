@@ -305,7 +305,9 @@ class BTCPServerSocket(BTCPSocket):
         this project.
         """
         logger.debug("accept called")
-        raise NotImplementedError("No implementation of accept present. Read the comments & code of server_socket.py.")
+        self._state = BTCPStates.ESTABLISHED
+
+        #   raise NotImplementedError("No implementation of accept present. Read the comments & code of server_socket.py.")
 
 
     def recv(self):
@@ -340,7 +342,18 @@ class BTCPServerSocket(BTCPSocket):
         Again, you should feel free to deviate from how this usually works.
         """
         logger.debug("recv called")
-        raise NotImplementedError("Only rudimentary implementation of recv present. Read the comments & code of server_socket.py, then remove the NotImplementedError.")
+
+        # Simply return whatever data is available in the receive buffer
+        # If no data is available, this method should block until data arrives
+        data = bytearray()
+        try:
+            # Wait until at least one segment becomes available in the buffer
+            data.extend(self._recvbuf.get(block=True))
+        except queue.Empty:
+            pass  # No data available in the receive buffer, so wait until data arrives
+        return bytes(data)
+
+        #raise NotImplementedError("Only rudimentary implementation of recv present. Read the comments & code of server_socket.py, then remove the NotImplementedError.")
 
         # Rudimentary example implementation:
         # Empty the queue in a loop, reading into a larger bytearray object.
