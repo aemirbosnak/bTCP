@@ -39,7 +39,6 @@ class BTCPServerSocket(BTCPSocket):
     you probably want to use Queues, or a similar thread safe collection.
     """
 
-
     def __init__(self, window, timeout):
         """Constructor for the bTCP server socket. Allocates local resources
         and starts an instance of the Lossy Layer.
@@ -61,8 +60,7 @@ class BTCPServerSocket(BTCPSocket):
         logger.info("Socket initialized with recvbuf size 1000")
 
         # Make sure the example timer exists from the start.
-        self._example_timer = None
-
+        self._timer = None
 
     ###########################################################################
     ### The following section is the interface between the transport layer  ###
@@ -122,8 +120,6 @@ class BTCPServerSocket(BTCPSocket):
         each elif.
         """
         logger.debug("lossy_layer_segment_received called")
-        logger.debug(segment)
-        #raise NotImplementedError("Only rudimentary implementation of lossy_layer_segment_received present. Read the comments & code of server_socket.py, then remove the NotImplementedError.")
 
         # match ... case is available since Python 3.10
         # Note, this is *not* the same as a "switch" statement from other
@@ -136,25 +132,13 @@ class BTCPServerSocket(BTCPSocket):
             case _:
                 self._other_segment_received(segment)
 
-        # If you don't have Python 3.10, the following if ... elif ... else
-        # is an equivalent option.
-        #if self._state == BTCPStates.CLOSED:
-        #    self._closed_segment_received(segment)
-        #elif self._state == BTCPStates.CLOSING:
-        #    self._closing_segment_received(segment)
-        #else:
-        #    logger.info("Segment received in %s state",
-        #                self._state)
-        #    self._other_segment_received(segment)
-
-        self._expire_timers()
         return
-
 
     def _closed_segment_received(self, segment):
         """Helper method handling received segment in CLOSED state
         """
         logger.debug("_closed_segment_received called")
+        logger.debug(segment)
         logger.warning("Segment received in CLOSED state.")
         logger.warning("Normally we wouldn't process this, but the "
                        "rudimentary implementation never leaves the CLOSED "
@@ -178,13 +162,13 @@ class BTCPServerSocket(BTCPSocket):
             logger.critical("Data got dropped!")
             logger.debug(chunk)
 
-
     def _closing_segment_received(self, segment):
         """Helper method handling received segment in CLOSING state
 
         Currently solely for demonstration purposes.
         """
         logger.debug("_closing_segment_received called")
+        logger.debug(segment)
         logger.info("Segment received in CLOSING state.")
         logger.info("This needs to be properly implemented. "
                     "Currently only here for demonstration purposes.")
@@ -195,6 +179,7 @@ class BTCPServerSocket(BTCPSocket):
         Currently solely for demonstration purposes.
         """
         logger.debug("_other_segment_received called")
+        logger.debug(segment)
         try:
             # Extract the data portion of the segment
             data_start = HEADER_SIZE  # Assuming the header size is known
@@ -229,37 +214,31 @@ class BTCPServerSocket(BTCPSocket):
         """
         logger.debug("lossy_layer_tick called")
         self._expire_timers()
-        #raise NotImplementedError("No implementation of lossy_layer_tick present. Read the comments & code of server_socket.py.")
-
 
     # The following two functions show you how you could implement a (fairly
     # inaccurate) but easy-to-use timer.
     # You *do* have to call _expire_timers() from *both* lossy_layer_tick
     # and lossy_layer_segment_received, for reasons explained in
     # lossy_layer_tick.
-    def _start_example_timer(self):
-        if not self._example_timer:
-            logger.debug("Starting example timer.")
-            # Time in *nano*seconds, not milli- or microseconds.
-            # Using a monotonic clock ensures independence of weird stuff
-            # like leap seconds and timezone changes.
-            self._example_timer = time.monotonic_ns()
+    def _start_timer(self):
+        if not self._timer:
+            logger.debug("Starting timer.")
+            self._timer = time.monotonic_ns()
         else:
-            logger.debug("Example timer already running.")
-
+            logger.debug("Timer already running.")
 
     def _expire_timers(self):
         curtime = time.monotonic_ns()
-        if not self._example_timer:
-            logger.debug("Example timer not running.")
-        elif curtime - self._example_timer > self._timeout * 1_000_000:
-            logger.debug("Example timer elapsed. Connection or transmission timed out.")
+        if not self._timer:
+            logger.debug("Timer not running.")
+        elif curtime - self._timer > self._timeout * 1_000_000:
+            logger.debug("Timer elapsed. Connection or transmission timed out.")
             # Take appropriate action here, such as closing the connection or retransmitting data
             self.close()  # For example, close the connection
             # Or trigger retransmission
         else:
-            logger.debug("Example timer not yet elapsed.")
-
+            logger.debug("Timer not yet elapsed.")
+            self._timer = time.monotonic_ns()
 
     ###########################################################################
     ### You're also building the socket API for the applications to use.    ###
@@ -313,10 +292,7 @@ class BTCPServerSocket(BTCPSocket):
         """
         logger.debug("accept called")
         self._state = BTCPStates.ESTABLISHED
-        self._start_example_timer()
-
-        #raise NotImplementedError("No implementation of accept present. Read the comments & code of server_socket.py.")
-
+        self._start_timer()
 
     def recv(self):
         """Return data that was received from the client to the application in
@@ -354,8 +330,6 @@ class BTCPServerSocket(BTCPSocket):
         # Simply return whatever data is available in the receive buffer
         # If no data is available, this method should block until data arrives
 
-        #raise NotImplementedError("Only rudimentary implementation of recv present. Read the comments & code of server_socket.py, then remove the NotImplementedError.")
-
         # Rudimentary example implementation:
         # Empty the queue in a loop, reading into a larger bytearray object.
         # Once empty, return the data as bytes.
@@ -383,13 +357,11 @@ class BTCPServerSocket(BTCPSocket):
                 logger.debug("Additional chunk of data retrieved.")
         except queue.Empty:
             logger.debug("Queue emptied or timeout reached")
-            pass # (Not break: the exception itself has exited the loop)
-        logger.debug(data)
+            pass
         if not data:
             logger.info("No data received for 30 seconds.")
             logger.info("Returning empty bytes to caller, signalling disconnect.")
         return bytes(data)
-
 
     def close(self):
         """Cleans up any internal state by at least destroying the instance of
@@ -412,7 +384,6 @@ class BTCPServerSocket(BTCPSocket):
         if self._lossy_layer is not None:
             self._lossy_layer.destroy()
         self._lossy_layer = None
-
 
     def __del__(self):
         """Destructor. Do not modify."""
