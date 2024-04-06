@@ -57,7 +57,7 @@ def btcp_file_transfer_server():
                         type=int, default=100)
     parser.add_argument("-o", "--output",
                         help="Where to store the file",
-                        default="output.file")
+                        default="my_output.file")
     parser.add_argument("-l", "--loglevel",
                         choices=["DEBUG", "INFO", "WARNING",
                                  "ERROR", "CRITICAL"],

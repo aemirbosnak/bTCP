@@ -7,7 +7,7 @@ TIMER_TICK:
     Feel free to alter as needed, but should probably stay > 10ms to avoid
     excessive resource use.
 """
-TIMER_TICK = 30000
+TIMER_TICK = 100
 
 """
 CLIENT_IP, CLIENT_PORT, SERVER_IP, SERVER_PORT:

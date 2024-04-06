@@ -282,8 +282,7 @@ class BTCPClientSocket(BTCPSocket):
         more advanced thread synchronization in this project.
         """
         logger.debug("shutdown called")
-        raise NotImplementedError("No implementation of shutdown present. Read the comments & code of client_socket.py.")
-
+        self._state = BTCPStates.CLOSING
 
     def close(self):
         """Cleans up any internal state by at least destroying the instance of
@@ -303,6 +302,7 @@ class BTCPClientSocket(BTCPSocket):
             3. set the reference to None.
         """
         logger.debug("close called")
+        self._state = BTCPStates.CLOSED
         if self._lossy_layer is not None:
             self._lossy_layer.destroy()
         self._lossy_layer = None

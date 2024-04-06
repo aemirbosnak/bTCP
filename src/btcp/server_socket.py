@@ -123,7 +123,7 @@ class BTCPServerSocket(BTCPSocket):
         """
         logger.debug("lossy_layer_segment_received called")
         logger.debug(segment)
-        raise NotImplementedError("Only rudimentary implementation of lossy_layer_segment_received present. Read the comments & code of server_socket.py, then remove the NotImplementedError.")
+        #raise NotImplementedError("Only rudimentary implementation of lossy_layer_segment_received present. Read the comments & code of server_socket.py, then remove the NotImplementedError.")
 
         # match ... case is available since Python 3.10
         # Note, this is *not* the same as a "switch" statement from other
@@ -353,13 +353,6 @@ class BTCPServerSocket(BTCPSocket):
 
         # Simply return whatever data is available in the receive buffer
         # If no data is available, this method should block until data arrives
-        data = bytearray()
-        try:
-            # Wait until at least one segment becomes available in the buffer
-            data.extend(self._recvbuf.get(block=True))
-        except queue.Empty:
-            pass  # No data available in the receive buffer, so wait until data arrives
-        return bytes(data)
 
         #raise NotImplementedError("Only rudimentary implementation of recv present. Read the comments & code of server_socket.py, then remove the NotImplementedError.")
 
