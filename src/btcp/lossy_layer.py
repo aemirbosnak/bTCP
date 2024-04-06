@@ -129,7 +129,8 @@ class LossyLayer:
         logger.info("LossyLayer.destroy() called.")
         if self._event is not None and self._thread is not None:
             self._event.set()
-            self._thread.join()
+            if threading.current_thread() != self._thread:
+                self._thread.join()
         if self._udp_socket is not None:
             self._udp_socket.close()
         self._event = None

@@ -55,6 +55,11 @@ class BTCPSocket:
         logger.debug("Socket initialized with window %i and timeout %i",
                      self._window, self._timeout)
 
+    @staticmethod
+    def carry_add(a, b):
+        overflow = (a + b) >> 16
+
+        return (((a + b) << 16) >> 16) + overflow
 
     @staticmethod
     def in_cksum(segment):
@@ -68,8 +73,23 @@ class BTCPSocket:
         then the resulting checksum should be put in its place.
         """
         logger.debug("in_cksum() called")
-        raise NotImplementedError("No implementation of in_cksum present. Read the comments & code of btcp_socket.py.")
 
+        pseudo_header = segment[:8] + b'\x00\x00' + segment[10:]
+
+        # makes sure the pseudo header can be split into 16 bit words
+        if len(pseudo_header) % 2 == 1:
+            pseudo_header += b'\x00'
+
+        num_words = len(pseudo_header) / 2
+
+        words = struct.unpack(f"!{num_words}H", pseudo_header)
+
+        current_sum = 0
+
+        for word in words:
+            current_sum = self.carry_add(current_sum, word)
+
+        return ~current_sum
 
     @staticmethod
     def verify_checksum(segment):
@@ -86,41 +106,28 @@ class BTCPSocket:
     def build_segment_header(seqnum, acknum,
                              syn_set=False, ack_set=False, fin_set=False,
                              window=0x01, length=0, checksum=0):
-        """Pack the method arguments into a valid bTCP header using struct.pack
+        """Pack the method arguments into a valid bTCP header using struct.pack"""
 
-        This method is given because historically students had a lot of trouble
-        figuring out how to pack and unpack values into / out of the header.
-        We have *not* provided an implementation of the corresponding unpack
-        method (see below), so inspect the code, look at the documentation for
-        struct.pack, and figure out what this does, so you can implement the
-        unpack method yourself.
-
-        Of course, you are free to implement it differently, as long as you
-        do so correctly *and respect the network byte order*.
-
-        You are allowed to change the SYN, ACK, and FIN flag locations in the
-        flags byte, but make sure to do so correctly everywhere you pack and
-        unpack them.
-
-        The method is written to have sane defaults for the arguments, so
-        you don't have to always set all flags explicitly true/false, or give
-        a checksum of 0 when creating the header for checksum computation.
-        """
         logger.debug("build_segment_header() called")
         flag_byte = syn_set << 2 | ack_set << 1 | fin_set
         logger.debug("build_segment_header() done")
-        return struct.pack("!HHBBHH",
-                           seqnum, acknum, flag_byte, window, length, checksum)
+        return struct.pack("!HHBBHH", seqnum, acknum, flag_byte, window, length, checksum)
 
 
     @staticmethod
     def unpack_segment_header(header):
-        """Unpack the individual bTCP header field values from the header.
+        """Unpack the individual bTCP header field values from the header."""
 
-        Remember that Python supports multiple return values through automatic
-        tupling, so it's easy to simply return all of them in one go rather
-        than make a separate method for every individual field.
-        """
         logger.debug("unpack_segment_header() called")
-        raise NotImplementedError("No implementation of unpack_segment_header present. Read the comments & code of btcp_socket.py. You should really implement the packing / unpacking of the header into field values before doing anything else!")
+
+        seqnum, acknum, flags, window, data_length, checksum = struct.unpack("!HHBBHH", header)
+
+        fin_set = bool(flags & 1)
+        ack_set = bool((flags >> 1) & 1)
+        syn_set = bool(flags >> 2)
+
+        data = header[10:10 + data_length]
+
+        return seqnum, acknum, syn_set, ack_set, fin_set, window, data_length, checksum
+
         logger.debug("unpack_segment_header() done")

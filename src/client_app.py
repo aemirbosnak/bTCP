@@ -58,7 +58,7 @@ def btcp_file_transfer_client():
                         type=int, default=100)
     parser.add_argument("-i", "--input",
                         help="File to send",
-                        default="very_small_input.py")
+                        default="small_input.py")
     parser.add_argument("-l", "--loglevel",
                         choices=["DEBUG", "INFO", "WARNING",
                                  "ERROR", "CRITICAL"],
