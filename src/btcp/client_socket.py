@@ -33,7 +33,6 @@ class BTCPClientSocket(BTCPSocket):
     you probably want to use Queues, or a similar thread safe collection.
     """
 
-
     def __init__(self, window, timeout):
         """Constructor for the bTCP client socket. Allocates local resources
         and starts an instance of the Lossy Layer.
@@ -49,7 +48,6 @@ class BTCPClientSocket(BTCPSocket):
         # thread into the network thread. Bounded in size.
         self._sendbuf = queue.Queue(maxsize=1000)
         logger.info("Socket initialized with sendbuf size 1000")
-
 
     ###########################################################################
     ### The following section is the interface between the transport layer  ###
@@ -105,7 +103,6 @@ class BTCPClientSocket(BTCPSocket):
         logger.debug("lossy_layer_segment_received called")
         raise NotImplementedError("No implementation of lossy_layer_segment_received present. Read the comments & code of client_socket.py.")
 
-
     def lossy_layer_tick(self):
         """Called by the lossy layer whenever no segment has arrived for
         TIMER_TICK milliseconds. Defaults to 100ms, can be set in constants.py.
@@ -131,7 +128,6 @@ class BTCPClientSocket(BTCPSocket):
         lossy_layer_segment_received or lossy_layer_tick.
         """
         logger.debug("lossy_layer_tick called")
-        raise NotImplementedError("Only rudimentary implementation of lossy_layer_tick present. Read the comments & code of client_socket.py, then remove the NotImplementedError.")
 
         # Actually send all chunks available for sending.
         # Relies on an eventual exception to break from the loop when no data
@@ -146,9 +142,6 @@ class BTCPClientSocket(BTCPSocket):
                 logger.debug("Got chunk with lenght %i:",
                              datalen)
                 logger.debug(chunk)
-                if datalen < PAYLOAD_SIZE:
-                    logger.debug("Padding chunk to full size")
-                    chunk = chunk + b'\x00' * (PAYLOAD_SIZE - datalen)
                 logger.debug("Building segment from chunk.")
                 segment = (self.build_segment_header(0, 0, length=datalen)
                            + chunk)
@@ -156,8 +149,6 @@ class BTCPClientSocket(BTCPSocket):
                 self._lossy_layer.send_segment(segment)
         except queue.Empty:
             logger.info("No (more) data was available for sending right now.")
-
-
 
     ###########################################################################
     ### You're also building the socket API for the applications to use.    ###
@@ -209,8 +200,9 @@ class BTCPClientSocket(BTCPSocket):
         this project.
         """
         logger.debug("connect called")
-        raise NotImplementedError("No implementation of connect present. Read the comments & code of client_socket.py.")
+        self._state = BTCPStates.ESTABLISHED
 
+        #raise NotImplementedError("No implementation of connect present. Read the comments & code of client_socket.py.")
 
     def send(self, data):
         """Send data originating from the application in a reliable way to the
@@ -240,7 +232,6 @@ class BTCPClientSocket(BTCPSocket):
         done later.
         """
         logger.debug("send called")
-        raise NotImplementedError("Only rudimentary implementation of send present. Read the comments & code of client_socket.py, then remove the NotImplementedError.")
 
         # Example with a finite buffer: a queue with at most 1000 chunks,
         # for a maximum of 985KiB data buffered to get turned into packets.
@@ -265,7 +256,6 @@ class BTCPClientSocket(BTCPSocket):
                     datalen)
         return sent_bytes
 
-
     def shutdown(self):
         """Perform the bTCP three-way finish to shutdown the connection.
 
@@ -282,8 +272,7 @@ class BTCPClientSocket(BTCPSocket):
         more advanced thread synchronization in this project.
         """
         logger.debug("shutdown called")
-        raise NotImplementedError("No implementation of shutdown present. Read the comments & code of client_socket.py.")
-
+        self._state = BTCPStates.CLOSING
 
     def close(self):
         """Cleans up any internal state by at least destroying the instance of
@@ -303,10 +292,10 @@ class BTCPClientSocket(BTCPSocket):
             3. set the reference to None.
         """
         logger.debug("close called")
+        self._state = BTCPStates.CLOSED
         if self._lossy_layer is not None:
             self._lossy_layer.destroy()
         self._lossy_layer = None
-
 
     def __del__(self):
         """Destructor. Do not modify."""
