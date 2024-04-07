@@ -7,19 +7,6 @@ logger = logging.getLogger(__name__)
 
 
 class BTCPStates(IntEnum):
-    """Enum class that helps you implement the bTCP state machine.
-
-    Don't use the integer values of this enum directly. Always refer to them as
-    BTCPStates.CLOSED etc.
-
-    These states are NOT exhaustive! We left out at least one state that you
-    will need to implement the bTCP state machine correctly. The intention of
-    this enum is to give you some idea for states and how simple the
-    transitions between them are.
-
-    Feel free to implement your state machine in a different way, without
-    using such an enum.
-    """
     CLOSED      = 0
     ACCEPTING   = 1
     SYN_SENT    = 2
@@ -30,22 +17,12 @@ class BTCPStates(IntEnum):
 
 
 class BTCPSignals(IntEnum):
-    """Enum class that you can use to signal from the Application thread
-    to the Network thread.
-
-    For example, rather than explicitly change state in the Application thread,
-    you could put one of these in a variable that the network thread reads the
-    next time it ticks, and handles the state change in the network thread.
-    """
     ACCEPT = 1
     CONNECT = 2
     SHUTDOWN = 3
 
 
 class BTCPSocket:
-    """Base class for bTCP client and server sockets. Contains static helper
-    methods that will definitely be useful for both sending and receiving side.
-    """
     def __init__(self, window, timeout):
         logger.debug("__init__ called")
         self._window = window
@@ -62,15 +39,6 @@ class BTCPSocket:
 
     @staticmethod
     def in_cksum(segment):
-        """Compute the internet checksum of the segment given as argument.
-        Consult lecture 3 for details.
-
-        Our bTCP implementation always has an even number of bytes in a segment.
-
-        Remember that, when computing the checksum value before *sending* the
-        segment, the checksum field in the header should be set to 0x0000, and
-        then the resulting checksum should be put in its place.
-        """
         logger.debug("in_cksum() called")
 
         pseudo_header = segment[:8] + b'\x00\x00' + segment[10:]
@@ -92,10 +60,6 @@ class BTCPSocket:
 
     @staticmethod
     def verify_checksum(segment):
-        """Verify that the checksum indicates is an uncorrupted segment.
-
-        Mind that you change *what* signals that to the correct value(s).
-        """
         logger.debug("verify_cksum() called")
         raise NotImplementedError("No implementation of in_cksum present. Read the comments & code of btcp_socket.py.")
         return BTCPSocket.in_cksum(segment) == 0xABCD
