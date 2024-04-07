@@ -4,7 +4,6 @@ from btcp.constants import *
 
 import queue
 import time
-import struct
 import logging
 
 
@@ -12,33 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 class BTCPServerSocket(BTCPSocket):
-    """bTCP server socket
-    A server application makes use of the services provided by bTCP by calling
-    accept, recv, and close.
-
-    You're implementing the transport layer, exposing it to the application
-    layer as a (variation on) socket API. Do note, however, that this socket
-    as presented is *always* in "listening" state, and handles the client's
-    connection in the same socket. You do not have to implement a separate
-    listen socket. If you get everything working, you may do so for some extra
-    credit.
-
-    To implement the transport layer, you also need to interface with the
-    network (lossy) layer. This happens by both calling into it
-    (LossyLayer.send_segment) and providing callbacks for it
-    (BTCPServerSocket.lossy_layer_segment_received, lossy_layer_tick).
-
-    Your implementation will operate in two threads, the network thread,
-    where the lossy layer "lives" and where your callbacks will be called from,
-    and the application thread, where the application calls connect, send, etc.
-    This means you will need some thread-safe information passing between
-    network thread and application thread.
-    Writing a boolean or enum attribute in one thread and reading it in a loop
-    in another thread should be sufficient to signal state changes.
-    Lists, however, are not thread safe, so to pass data and segments around
-    you probably want to use Queues, or a similar thread safe collection.
-    """
-
     def __init__(self, window, timeout):
         """Constructor for the bTCP server socket. Allocates local resources
         and starts an instance of the Lossy Layer.
@@ -51,7 +23,12 @@ class BTCPServerSocket(BTCPSocket):
         self._lossy_layer = LossyLayer(self, SERVER_IP, SERVER_PORT, CLIENT_IP, CLIENT_PORT)
 
         self._next_seqnum = 0
-        logger.info("Next sequence number: {}".format(self._next_seqnum))
+        self._state = BTCPStates.CLOSED
+
+        self._max_retries = MAX_RETRIES
+        self._retry_count = 0
+        self._timeout = timeout
+        self._timer = None
 
         # The data buffer used by lossy_layer_segment_received to move data
         # from the network thread into the application thread. Bounded in size.
@@ -63,7 +40,7 @@ class BTCPServerSocket(BTCPSocket):
         logger.info("Socket initialized with recvbuf size 1000")
 
         # Make sure the example timer exists from the start.
-        self._timer = None
+        self._example_timer = None
 
     ###########################################################################
     ### The following section is the interface between the transport layer  ###
@@ -84,38 +61,7 @@ class BTCPServerSocket(BTCPSocket):
     ###########################################################################
 
     def lossy_layer_segment_received(self, segment):
-        """Called by the lossy layer whenever a segment arrives.
-
-        Things you should expect to handle here (or in helper methods called
-        from here):
-            - checksum verification (and deciding what to do if it fails)
-            - receiving syn and client's ack during handshake
-            - receiving segments and sending acknowledgements for them,
-              making data from those segments available to application layer
-            - receiving fin and client's ack during termination
-            - any other handling of the header received from the client
-
-        Remember, we expect you to implement this *as a state machine!*
-        You have quite a bit of freedom in how you do this, but we at least
-        expect you to *keep track of the state the protocol is in*,
-        *perform the appropriate state transitions based on events*, and
-        *alter behaviour based on that state*.
-
-        So when you receive the segment, do the processing that is common
-        for all states (verifying the checksum, parsing it into header values
-        and data...).
-        Then check the protocol state, do appropriate state-based processing
-        (e.g. a FIN is not an acceptable segment in ACCEPTING state, whereas a
-        SYN is).
-        Finally, do post-processing that is common to all states.
-
-        You could e.g. implement the state-specific processing in a helper
-        function per state, and simply call the appropriate helper function
-        based on which state you are in.
-        In that case, it will be very helpful to split your processing into
-        smaller helper functions, that you can combine as needed into a larger
-        function for each state.
-        """
+        """Called by the lossy layer whenever a segment arrives."""
         logger.debug("lossy_layer_segment_received called")
 
         # Check for internet checksum
@@ -127,12 +73,51 @@ class BTCPServerSocket(BTCPSocket):
             "Received segment: seqnum={}, acknum={}, syn_set={}, ack_set={}, fin_set={}, window={}, length={}, checksum={}"
             .format(seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum))
 
-        if not syn_set and not ack_set and not fin_set:  # data segment
-            self._data_segment_received(segment, seqnum)
-        elif not syn_set and not ack_set and fin_set:   # FIN segment
-            self._fin_segment_received(seqnum)
+        if self._state == BTCPStates.CLOSED:
+            logger.error("Connection is closed")
+            pass
+
+        elif self._state == BTCPStates.ACCEPTING:
+            if syn_set:  # SYN segment
+                self._syn_segment_received(segment, seqnum)
+
+        elif self._state == BTCPStates.SYN_RCVD:
+            if ack_set:
+                logger.info("Connection established")
+                self._state = BTCPStates.ESTABLISHED
+
+            elif syn_set:
+                logger.info("Received duplicate SYN segment, resending SYN/ACK")
+                synack_segment = self.build_segment_header(self._next_seqnum, seqnum + 1, syn_set=True, ack_set=True)
+                self._lossy_layer.send_segment(synack_segment)
+
+            elif time.time() - self._timer > self._timeout:
+                if self._retry_count < self._max_retries:
+                    logger.info("Timeout: Retrying SYN/ACK")
+                    synack_segment = self.build_segment_header(self._next_seqnum, seqnum + 1, syn_set=True, ack_set=True)
+                    self._lossy_layer.send_segment(synack_segment)
+                    self._timer = time.time()
+                    self._retry_count += 1
+                else:
+                    logger.error("Timeout and retries exceeded, back to ACCEPTING state")
+                    self._state = BTCPStates.ACCEPTING
+
+        elif self._state == BTCPStates.ESTABLISHED:
+            if not syn_set and not ack_set and not fin_set:  # data segment
+                self._data_segment_received(segment, seqnum)
+            elif not syn_set and not ack_set and fin_set:  # FIN segment
+                self._fin_segment_received(seqnum)
 
         return
+
+    def _syn_segment_received(self, segment, seqnum):
+        logger.info("Received SYN segment")
+
+        # Send SYN/ACK
+        synack_segment = self.build_segment_header(self._next_seqnum, seqnum + 1, syn_set=True, ack_set=True)
+        self._lossy_layer.send_segment(synack_segment)
+        self._state = BTCPStates.SYN_RCVD
+        self._timer = time.time()
 
     def _fin_segment_received(self, seqnum):
         logger.debug("_fin_segment_received called")
@@ -143,17 +128,6 @@ class BTCPServerSocket(BTCPSocket):
         self._lossy_layer.send_segment(finack_segment)
 
         self.close()
-
-    def _closing_segment_received(self, segment):
-        """Helper method handling received segment in CLOSING state
-
-        Currently solely for demonstration purposes.
-        """
-        logger.debug("_closing_segment_received called")
-        logger.debug(segment)
-        logger.info("Segment received in CLOSING state.")
-        logger.info("This needs to be properly implemented. "
-                    "Currently only here for demonstration purposes.")
 
     def _data_segment_received(self, segment, seqnum):
         logger.debug("_data_segment_received called")
@@ -168,10 +142,12 @@ class BTCPServerSocket(BTCPSocket):
         except queue.Full:
             logger.error("Receive buffer is full. Dropping data segment.")
             return
+
         # Send acknowledgment for the received data segment
         ack_segment = self.build_segment_header(seqnum, self._next_seqnum, ack_set=True)
         self._lossy_layer.send_segment(ack_segment)
         logger.info("Sent acknowledgment for sequence number: {}".format(seqnum))
+
         # Update the expected sequence number
         self._next_seqnum += 1
 
@@ -205,24 +181,24 @@ class BTCPServerSocket(BTCPSocket):
     # and lossy_layer_segment_received, for reasons explained in
     # lossy_layer_tick.
     def _start_timer(self):
-        if not self._timer:
+        if not self._example_timer:
             logger.debug("Starting timer.")
-            self._timer = time.monotonic_ns()
+            self._example_timer = time.monotonic_ns()
         else:
             logger.debug("Timer already running.")
 
     def _expire_timers(self):
         curtime = time.monotonic_ns()
-        if not self._timer:
+        if not self._example_timer:
             logger.debug("Timer not running.")
-        elif curtime - self._timer > self._timeout * 1_000_000:
+        elif curtime - self._example_timer > self._timeout * 1_000_000:
             logger.debug("Timer elapsed. Connection or transmission timed out.")
             # Take appropriate action here, such as closing the connection or retransmitting data
             # self.close()  # For example, close the connection
             # Or trigger retransmission
         else:
             logger.debug("Timer not yet elapsed.")
-            self._timer = time.monotonic_ns()
+            self._example_timer = time.monotonic_ns()
 
     ###########################################################################
     ### You're also building the socket API for the applications to use.    ###
@@ -275,7 +251,7 @@ class BTCPServerSocket(BTCPSocket):
         this project.
         """
         logger.debug("accept called")
-        self._state = BTCPStates.ESTABLISHED
+        self._state = BTCPStates.ACCEPTING
         self._start_timer()
 
     def recv(self):

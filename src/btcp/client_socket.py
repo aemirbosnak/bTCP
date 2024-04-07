@@ -44,6 +44,8 @@ class BTCPClientSocket(BTCPSocket):
         super().__init__(window, timeout)
         self._lossy_layer = LossyLayer(self, CLIENT_IP, CLIENT_PORT, SERVER_IP, SERVER_PORT)
 
+        self._state = BTCPStates.CLOSED
+
         # Initialize the seq and ack number
         self._next_seqnum = 0
         self._expected_ack = 0
@@ -51,6 +53,7 @@ class BTCPClientSocket(BTCPSocket):
 
         self._max_retries = MAX_RETRIES
         self._retry_count = 0
+        self._timeout = timeout
 
         # The data buffer used by send() to send data from the application
         # thread into the network thread. Bounded in size.
@@ -120,28 +123,30 @@ class BTCPClientSocket(BTCPSocket):
         #    return
 
         if self._state == BTCPStates.CLOSED:
+            logger.error("Connection is closed")
             pass
 
         elif self._state == BTCPStates.SYN_SENT:
-            pass
+            if syn_set and ack_set:
+                logger.info("Received SYN/ACK segment")
+
+                # Send ACK segment
+                ack_segment = self.build_segment_header(acknum, seqnum+1, ack_set=True)
+                self._lossy_layer.send_segment(ack_segment)
+                self._state = BTCPStates.ESTABLISHED
 
         elif self._state == BTCPStates.ESTABLISHED:
             if ack_set and acknum == self._expected_ack:
-                logger.info("Received ACK for segment with sequence number {}".format(seqnum))
                 self._expected_ack += 1  # Update the expected acknowledgment number
                 self._ack_received = True
             else:
                 self._ack_received = False
 
-        elif self._state == BTCPStates.CLOSING:
+        elif self._state == BTCPStates.FIN_SENT:
             if ack_set and fin_set:
                 logger.info("Received FIN/ACK segment")
                 self._state = BTCPStates.CLOSED
                 self.close()
-
-        elif self._state == BTCPStates.FIN_SENT:
-            pass
-
 
     def lossy_layer_tick(self):
         """Called by the lossy layer whenever no segment has arrived for
@@ -215,62 +220,39 @@ class BTCPClientSocket(BTCPSocket):
     ###########################################################################
 
     def connect(self):
-        """Perform the bTCP three-way handshake to establish a connection.
-
-        connect should *block* (i.e. not return) until the connection has been
-        successfully established or the connection attempt is aborted. You will
-        need some coordination between the application thread and the network
-        thread for this, because the syn/ack from the server will be received
-        in the network thread.
-
-        Hint: assigning to a boolean or enum attribute in thread A and reading
-        it in a loop in thread B (preferably with a short sleep to avoid
-        wasting a lot of CPU time) ensures that thread B will wait until the
-        boolean or enum has the expected value. You can also put some kind of
-        "signal" (e.g. BTCPSignals.CONNECT, or BTCPStates.FIN_SENT) in a Queue,
-        and use a blocking get() on the other side to receive that signal.
-
-        Since Python uses duck typing, and Queues can handle mixed types,
-        you could even use the same queue to send a "connect signal", then
-        all data chunks, then a "shutdown signal", into the network thread.
-        That will take some tricky handling, however.
-
-        We do not think you will need more advanced thread synchronization in
-        this project.
-        """
+        """Perform the bTCP three-way handshake to establish a connection."""
         logger.debug("connect called")
-        self._state = BTCPStates.ESTABLISHED
 
-        #raise NotImplementedError("No implementation of connect present. Read the comments & code of client_socket.py.")
+        while self._retry_count < self._max_retries:
+            # Send SYN segment
+            initial_seqnum = self._next_seqnum  # starting sequence number from 0
+            syn_segment = self.build_segment_header(initial_seqnum, 0, syn_set=True)
+            self._lossy_layer.send_segment(syn_segment)
+            self._state = BTCPStates.SYN_SENT
+            self._expected_ack = self._next_seqnum + 1
+            logger.info("SYN sent")
+
+            # Wait for SYN/ACK
+            start_time = time.time()
+            while time.time() - start_time < self._timeout:
+                logger.debug("Waiting for SYN/ACK (State: {})".format(self._state))
+                if self._state == BTCPStates.ESTABLISHED:
+                    logger.debug("Connection established")
+                    return  # Connection established
+                time.sleep(0.1)
+
+            self._retry_count += 1
+
+        logger.error("Failed to establish connection. Aborting connect.")
+        self.close()
 
     def send(self, data):
-        """Send data originating from the application in a reliable way to the
-        server.
-
-        This method should *NOT* block waiting for acknowledgement of the data.
-
-
-        You are free to implement this however you like, but the following
-        explanation may help to understand how sockets *usually* behave and you
-        may choose to follow this concept as well:
-
-        The way this usually works is that "send" operates on a "send buffer".
-        Once (part of) the data has been successfully put "in the send buffer",
-        the send method returns the number of bytes it was able to put in the
-        buffer. The actual sending of the data, i.e. turning it into segments
-        and sending the segments into the lossy layer, happens *outside* of the
-        send method (e.g. in the network thread).
-        If the socket does not have enough buffer space available, it is up to
-        the application to retry sending the bytes it was not able to buffer
-        for sending.
-
-        Again, you should feel free to deviate from how this usually works.
-        Note that our rudimentary implementation here already chunks the data
-        in maximum 1008-byte bytes objects because that's the maximum a segment
-        can carry. If a chunk is smaller we do *not* pad it here, that gets
-        done later.
-        """
+        """Send data originating from the application in a reliable way to the server."""
         logger.debug("send called")
+
+        if self._state != BTCPStates.ESTABLISHED:
+            logger.error("Cannot send data: connection not established.")
+            return 0
 
         datalen = len(data)
         logger.debug("%i bytes passed to send", datalen)
@@ -317,18 +299,19 @@ class BTCPClientSocket(BTCPSocket):
         more advanced thread synchronization in this project.
         """
         logger.debug("shutdown called")
-        self._state = BTCPStates.CLOSING
+        self._retry_count = 0
 
         while self._retry_count < self._max_retries:
             # Send FIN segment
             fin_segment = self.build_segment_header(self._next_seqnum, 0, fin_set=True)
             self._lossy_layer.send_segment(fin_segment)
+            self._state = BTCPStates.FIN_SENT
 
             # Wait for FIN/ACK segment or timeout
-            start_time = time.monotonic_ns()
-            while time.monotonic_ns() - start_time < self._timeout:
+            start_time = time.time()
+            while time.time() - start_time < self._timeout:
                 if self._state == BTCPStates.CLOSED:
-                    return # Connection successfully closed
+                    return  # Connection successfully closed
                 time.sleep(0.1)
 
             self._retry_count += 1
