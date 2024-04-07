@@ -55,7 +55,7 @@ def btcp_file_transfer_client():
                         type=int, default=100)
     parser.add_argument("-t", "--timeout",
                         help="Define bTCP timeout in milliseconds",
-                        type=int, default=100)
+                        type=int, default=120)
     parser.add_argument("-i", "--input",
                         help="File to send",
                         default="very_small_input.py")

@@ -50,6 +50,9 @@ class BTCPServerSocket(BTCPSocket):
         super().__init__(window, timeout)
         self._lossy_layer = LossyLayer(self, SERVER_IP, SERVER_PORT, CLIENT_IP, CLIENT_PORT)
 
+        self._next_seqnum = 0
+        logger.info("Next sequence number: {}".format(self._next_seqnum))
+
         # The data buffer used by lossy_layer_segment_received to move data
         # from the network thread into the application thread. Bounded in size.
         # If data overflows the buffer it will get lost -- that's what window
@@ -179,17 +182,35 @@ class BTCPServerSocket(BTCPSocket):
         Currently solely for demonstration purposes.
         """
         logger.debug("_other_segment_received called")
-        logger.debug(segment)
-        try:
-            # Extract the data portion of the segment
-            data_start = HEADER_SIZE  # Assuming the header size is known
-            data = segment[data_start:]
-            # Put the data into the receive buffer
-            self._recvbuf.put(data, block=True, timeout=None)  # Blocking until there's space in the buffer
-        except queue.Full:
-            logger.error("Receive buffer is full. Dropping data.")
-        except Exception as e:
-            logger.error(f"Error processing received segment: {e}")
+
+        # Unpack segment header
+        seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum = self.unpack_segment_header(segment[:10])
+        # Log the extracted values
+        logger.info(
+            "Received segment: seqnum={}, acknum={}, syn_set={}, ack_set={}, fin_set={}, window={}, length={}, checksum={}"
+            .format(seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum))
+
+        if not syn_set and not ack_set and not fin_set:  # It's a data segment
+            # Process the received data segment
+            logger.info("Received data segment with sequence number: {}".format(seqnum))
+            # Put the received data into the receive buffer
+            try:
+                data_start = HEADER_SIZE  # Assuming the header size is known
+                data = segment[data_start:]
+                logger.info("Data part of segment: {}".format(data))
+                self._recvbuf.put(data, block=True, timeout=None)
+            except queue.Full:
+                logger.error("Receive buffer is full. Dropping data segment.")
+                return
+            # Send acknowledgment for the received data segment
+            ack_segment = self.build_segment_header(seqnum, self._next_seqnum, ack_set=True)
+            self._lossy_layer.send_segment(ack_segment)
+            logger.info("Sent acknowledgment for sequence number: {}".format(seqnum))
+            # Update the expected sequence number
+            self._next_seqnum += 1
+
+        else:
+            logger.warning("Unexpected segment received")
 
     def lossy_layer_tick(self):
         """Called by the lossy layer whenever no segment has arrived for

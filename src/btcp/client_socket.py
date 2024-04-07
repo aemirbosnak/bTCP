@@ -105,15 +105,15 @@ class BTCPClientSocket(BTCPSocket):
         each elif.
         """
         logger.debug("lossy_layer_segment_received called")
-        seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum = self.unpack_segment_header(segment)
+        seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum = self.unpack_segment_header(segment[:10])
 
         # Log the extracted values
         logger.info("Received segment: seqnum={}, acknum={}, syn_set={}, ack_set={}, fin_set={}, window={}, length={}, checksum={}"
             .format(seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum))
 
-        if not BTCPSocket.verify_checksum(segment):
-            logger.error("Checksum verification failed. Dropping segment")
-            return
+        #if not BTCPSocket.verify_checksum(segment):
+        #    logger.error("Checksum verification failed. Dropping segment")
+        #    return
 
         if self._state == BTCPStates.CLOSED:
             pass

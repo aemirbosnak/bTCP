@@ -126,8 +126,6 @@ class BTCPSocket:
         ack_set = bool((flags >> 1) & 1)
         syn_set = bool(flags >> 2)
 
-        data = header[10:10 + data_length]
-
         logger.debug("unpack_segment_header() done")
         return seqnum, acknum, syn_set, ack_set, fin_set, window, data_length, checksum
 
