@@ -44,6 +44,10 @@ class BTCPClientSocket(BTCPSocket):
         super().__init__(window, timeout)
         self._lossy_layer = LossyLayer(self, CLIENT_IP, CLIENT_PORT, SERVER_IP, SERVER_PORT)
 
+        # Initialize the sequence number
+        self._next_seqnum = 0
+        logger.info("Next sequence number: {}".format(self._next_seqnum))
+
         # The data buffer used by send() to send data from the application
         # thread into the network thread. Bounded in size.
         self._sendbuf = queue.Queue(maxsize=1000)
@@ -101,7 +105,29 @@ class BTCPClientSocket(BTCPSocket):
         each elif.
         """
         logger.debug("lossy_layer_segment_received called")
-        raise NotImplementedError("No implementation of lossy_layer_segment_received present. Read the comments & code of client_socket.py.")
+        seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum = self.unpack_segment_header(segment)
+
+        # Log the extracted values
+        logger.info("Received segment: seqnum={}, acknum={}, syn_set={}, ack_set={}, fin_set={}, window={}, length={}, checksum={}"
+            .format(seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum))
+
+        if not BTCPSocket.verify_checksum(segment):
+            logger.error("Checksum verification failed. Dropping segment")
+            return
+
+        if self._state == BTCPStates.CLOSED:
+            pass
+
+        elif self._state == BTCPStates.SYN_SENT:
+            pass
+
+        elif self._state == BTCPStates.ESTABLISHED:
+            logger.info("Established connection")
+            pass
+
+        elif self._state == BTCPStates.FIN_SENT:
+            pass
+
 
     def lossy_layer_tick(self):
         """Called by the lossy layer whenever no segment has arrived for
@@ -246,9 +272,12 @@ class BTCPClientSocket(BTCPSocket):
                 # Slide over data using sent_bytes. Reassignments to data are
                 # too expensive when data is large.
                 chunk = data[sent_bytes:sent_bytes+PAYLOAD_SIZE]
+                segment = self.build_segment_header(self._next_seqnum, 0, length=len(chunk)) + chunk
                 logger.debug("Putting chunk in send queue.")
-                self._sendbuf.put_nowait(chunk)
+                self._sendbuf.put_nowait(segment)
                 sent_bytes += len(chunk)
+                # Increment the sequence number for the next segment
+                self._next_seqnum += 1
         except queue.Full:
             logger.info("Send queue full.")
         logger.info("Managed to queue %i out of %i bytes for transmission",
