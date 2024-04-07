@@ -4,7 +4,7 @@ from btcp.constants import *
 
 import queue
 import logging
-
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,12 @@ class BTCPClientSocket(BTCPSocket):
         logger.debug("__init__ called")
         super().__init__(window, timeout)
         self._lossy_layer = LossyLayer(self, CLIENT_IP, CLIENT_PORT, SERVER_IP, SERVER_PORT)
+
+        # Initialize the seq and ack number
+        self._next_seqnum = 0
+        self._expected_ack = 0
+        self._ack_received = False
+        logger.info("Next sequence number: {}".format(self._next_seqnum))
 
         # The data buffer used by send() to send data from the application
         # thread into the network thread. Bounded in size.
@@ -101,7 +107,42 @@ class BTCPClientSocket(BTCPSocket):
         each elif.
         """
         logger.debug("lossy_layer_segment_received called")
-        raise NotImplementedError("No implementation of lossy_layer_segment_received present. Read the comments & code of client_socket.py.")
+        seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum = self.unpack_segment_header(segment[:10])
+
+        # Log the extracted values
+        logger.info("Received segment: seqnum={}, acknum={}, syn_set={}, ack_set={}, fin_set={}, window={}, length={}, checksum={}"
+            .format(seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum))
+
+        #if not BTCPSocket.verify_checksum(segment):
+        #    logger.error("Checksum verification failed. Dropping segment")
+        #    return
+
+        if self._state == BTCPStates.CLOSED:
+            pass
+
+        elif self._state == BTCPStates.SYN_SENT:
+            pass
+
+        elif self._state == BTCPStates.ESTABLISHED:
+            logger.info("Established connection")
+
+            if ack_set and acknum == self._expected_ack:
+                logger.info("Received ACK for segment with sequence number {}".format(seqnum))
+                self._expected_ack += 1  # Update the expected acknowledgment number
+                self._ack_received = True
+            else:
+                self._ack_received = False
+
+        elif self._state == BTCPStates.CLOSING:
+            logger.info("Closing connection")
+
+            if ack_set and fin_set:
+                logger.info("Received FIN/ACK segment")
+                self.close()
+
+        elif self._state == BTCPStates.FIN_SENT:
+            pass
+
 
     def lossy_layer_tick(self):
         """Called by the lossy layer whenever no segment has arrived for
@@ -143,8 +184,7 @@ class BTCPClientSocket(BTCPSocket):
                              datalen)
                 logger.debug(chunk)
                 logger.debug("Building segment from chunk.")
-                segment = (self.build_segment_header(0, 0, length=datalen)
-                           + chunk)
+                segment = self.build_segment_header(self._next_seqnum, 0, length=len(chunk)) + chunk
                 logger.info("Sending segment.")
                 self._lossy_layer.send_segment(segment)
         except queue.Empty:
@@ -249,6 +289,17 @@ class BTCPClientSocket(BTCPSocket):
                 logger.debug("Putting chunk in send queue.")
                 self._sendbuf.put_nowait(chunk)
                 sent_bytes += len(chunk)
+                # Increment the sequence number for the next segment
+                self._next_seqnum += 1
+
+                # Wait for ack segment before sending the next segment
+                while not self._ack_received:
+                    logger.debug(self._ack_received)
+                    time.sleep(0.1)
+
+                # Reset ack
+                self._ack_received = False
+
         except queue.Full:
             logger.info("Send queue full.")
         logger.info("Managed to queue %i out of %i bytes for transmission",
@@ -273,6 +324,10 @@ class BTCPClientSocket(BTCPSocket):
         """
         logger.debug("shutdown called")
         self._state = BTCPStates.CLOSING
+
+        # Send FIN segment
+        fin_segment = self.build_segment_header(self._next_seqnum, 0, fin_set=True)
+        self._lossy_layer.send_segment(fin_segment)
 
     def close(self):
         """Cleans up any internal state by at least destroying the instance of

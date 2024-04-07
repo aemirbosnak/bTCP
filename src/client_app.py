@@ -122,10 +122,6 @@ def btcp_file_transfer_client():
     logger.info("Calling shutdown")
     s.shutdown()
 
-    # Clean up any state
-    logger.info("Calling close")
-    s.close()
-
 
 if __name__ == "__main__":
     logger = logging.getLogger("client_app.py")
