@@ -82,4 +82,3 @@ class BTCPSocket:
         syn_set = bool(flags >> 2)
 
         return seqnum, acknum, syn_set, ack_set, fin_set, window, data_length, checksum
-
