@@ -4,7 +4,7 @@ from btcp.constants import *
 
 import queue
 import logging
-
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +44,10 @@ class BTCPClientSocket(BTCPSocket):
         super().__init__(window, timeout)
         self._lossy_layer = LossyLayer(self, CLIENT_IP, CLIENT_PORT, SERVER_IP, SERVER_PORT)
 
-        # Initialize the sequence number
+        # Initialize the seq and ack number
         self._next_seqnum = 0
+        self._expected_ack = 0
+        self._ack_received = False
         logger.info("Next sequence number: {}".format(self._next_seqnum))
 
         # The data buffer used by send() to send data from the application
@@ -123,7 +125,20 @@ class BTCPClientSocket(BTCPSocket):
 
         elif self._state == BTCPStates.ESTABLISHED:
             logger.info("Established connection")
-            pass
+
+            if ack_set and acknum == self._expected_ack:
+                logger.info("Received ACK for segment with sequence number {}".format(seqnum))
+                self._expected_ack += 1  # Update the expected acknowledgment number
+                self._ack_received = True
+            else:
+                self._ack_received = False
+
+        elif self._state == BTCPStates.CLOSING:
+            logger.info("Closing connection")
+
+            if ack_set and fin_set:
+                logger.info("Received FIN/ACK segment")
+                self.close()
 
         elif self._state == BTCPStates.FIN_SENT:
             pass
@@ -169,8 +184,7 @@ class BTCPClientSocket(BTCPSocket):
                              datalen)
                 logger.debug(chunk)
                 logger.debug("Building segment from chunk.")
-                segment = (self.build_segment_header(0, 0, length=datalen)
-                           + chunk)
+                segment = self.build_segment_header(self._next_seqnum, 0, length=len(chunk)) + chunk
                 logger.info("Sending segment.")
                 self._lossy_layer.send_segment(segment)
         except queue.Empty:
@@ -272,12 +286,20 @@ class BTCPClientSocket(BTCPSocket):
                 # Slide over data using sent_bytes. Reassignments to data are
                 # too expensive when data is large.
                 chunk = data[sent_bytes:sent_bytes+PAYLOAD_SIZE]
-                segment = self.build_segment_header(self._next_seqnum, 0, length=len(chunk)) + chunk
                 logger.debug("Putting chunk in send queue.")
-                self._sendbuf.put_nowait(segment)
+                self._sendbuf.put_nowait(chunk)
                 sent_bytes += len(chunk)
                 # Increment the sequence number for the next segment
                 self._next_seqnum += 1
+
+                # Wait for ack segment before sending the next segment
+                while not self._ack_received:
+                    logger.debug(self._ack_received)
+                    time.sleep(0.1)
+
+                # Reset ack
+                self._ack_received = False
+
         except queue.Full:
             logger.info("Send queue full.")
         logger.info("Managed to queue %i out of %i bytes for transmission",
@@ -302,6 +324,10 @@ class BTCPClientSocket(BTCPSocket):
         """
         logger.debug("shutdown called")
         self._state = BTCPStates.CLOSING
+
+        # Send FIN segment
+        fin_segment = self.build_segment_header(self._next_seqnum, 0, fin_set=True)
+        self._lossy_layer.send_segment(fin_segment)
 
     def close(self):
         """Cleans up any internal state by at least destroying the instance of

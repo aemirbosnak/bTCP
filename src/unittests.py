@@ -75,7 +75,7 @@ class BasicTests(unittest.TestCase):
         s = btcp.server_socket.BTCPServerSocket(DEFAULT_WINDOW, DEFAULT_TIMEOUT)
         s.accept()
         assert(s.recv() == b"Hello world!")
-        s.shutdown()
+        s.close()
 
     def test_4_reconnect(self): 
         self.assertTrue(run_in_separate_processes((), 

@@ -55,6 +55,7 @@ class LossyLayer:
 
         logger.info("Starting handle_incoming_segments")
         while not event.is_set():
+            logger.info("Event: {}".format(event))
             try:
                 # We do not block here, because we might never check the loop condition in that case
                 rlist, wlist, elist = select.select([udp_socket], [], [], TIMER_TICK / 1000)
@@ -146,6 +147,7 @@ class LossyLayer:
         network thread.
         """
         logger.debug("Attempting to send segment:")
+        logger.debug(segment)
         with self._handler_lock:
             self._handler_stack[-1].send_segment(segment)
 

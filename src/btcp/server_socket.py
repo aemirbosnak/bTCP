@@ -115,55 +115,34 @@ class BTCPServerSocket(BTCPSocket):
         In that case, it will be very helpful to split your processing into
         smaller helper functions, that you can combine as needed into a larger
         function for each state.
-
-        If you are on Python 3.10, feel free to use the match ... case
-        statement.
-        If you are on an earlier Python version, an if ... elif ...  elif
-        construction can be used; just make sure to check the same variable in
-        each elif.
         """
         logger.debug("lossy_layer_segment_received called")
 
-        # match ... case is available since Python 3.10
-        # Note, this is *not* the same as a "switch" statement from other
-        # languages. There is no "fallthrough" behaviour, so no breaks.
-        match self._state:
-            case BTCPStates.CLOSED:
-                self._closed_segment_received(segment)
-            case BTCPStates.CLOSING:
-                self._closing_segment_received(segment)
-            case _:
-                self._other_segment_received(segment)
+        # Check for internet checksum
+
+        # Unpack segment header
+        seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum = self.unpack_segment_header(segment[:10])
+        # Log the extracted values
+        logger.info(
+            "Received segment: seqnum={}, acknum={}, syn_set={}, ack_set={}, fin_set={}, window={}, length={}, checksum={}"
+            .format(seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum))
+
+        if not syn_set and not ack_set and not fin_set:  # data segment
+            self._data_segment_received(segment, seqnum)
+        elif not syn_set and not ack_set and fin_set:   # FIN segment
+            self._fin_segment_received(seqnum)
 
         return
 
-    def _closed_segment_received(self, segment):
-        """Helper method handling received segment in CLOSED state
-        """
-        logger.debug("_closed_segment_received called")
-        logger.debug(segment)
-        logger.warning("Segment received in CLOSED state.")
-        logger.warning("Normally we wouldn't process this, but the "
-                       "rudimentary implementation never leaves the CLOSED "
-                       "state.")
-        # Get length from header. Change this to a proper segment header unpack
-        # after implementing BTCPSocket.unpack_segment_header in btcp_socket.py
-        datalen, = struct.unpack("!H", segment[6:8])
-        # Slice data from incoming segment.
-        chunk = segment[HEADER_SIZE:HEADER_SIZE + datalen]
-        # Pass data into receive buffer so that the application thread can
-        # retrieve it.
-        try:
-            self._recvbuf.put_nowait(chunk)
-        except queue.Full:
-            # Data gets dropped if the receive buffer is full. You need to
-            # ensure this doesn't happen by using window sizes and not
-            # acknowledging dropped data.
-            # Initially, while still developing other features,
-            # you can also just set the size limitation on the Queue
-            # much higher, or remove it altogether.
-            logger.critical("Data got dropped!")
-            logger.debug(chunk)
+    def _fin_segment_received(self, seqnum):
+        logger.debug("_fin_segment_received called")
+        logger.info("Received data segment with sequence number: {}".format(seqnum))
+
+        # Send FIN/ACK segment
+        finack_segment = self.build_segment_header(seqnum, self._next_seqnum, ack_set=True, fin_set=True)
+        self._lossy_layer.send_segment(finack_segment)
+
+        self.close()
 
     def _closing_segment_received(self, segment):
         """Helper method handling received segment in CLOSING state
@@ -176,41 +155,25 @@ class BTCPServerSocket(BTCPSocket):
         logger.info("This needs to be properly implemented. "
                     "Currently only here for demonstration purposes.")
 
-    def _other_segment_received(self, segment):
-        """Helper method handling received segment in any other state
+    def _data_segment_received(self, segment, seqnum):
+        logger.debug("_data_segment_received called")
+        logger.info("Received data segment with sequence number: {}".format(seqnum))
 
-        Currently solely for demonstration purposes.
-        """
-        logger.debug("_other_segment_received called")
-
-        # Unpack segment header
-        seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum = self.unpack_segment_header(segment[:10])
-        # Log the extracted values
-        logger.info(
-            "Received segment: seqnum={}, acknum={}, syn_set={}, ack_set={}, fin_set={}, window={}, length={}, checksum={}"
-            .format(seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum))
-
-        if not syn_set and not ack_set and not fin_set:  # It's a data segment
-            # Process the received data segment
-            logger.info("Received data segment with sequence number: {}".format(seqnum))
-            # Put the received data into the receive buffer
-            try:
-                data_start = HEADER_SIZE  # Assuming the header size is known
-                data = segment[data_start:]
-                logger.info("Data part of segment: {}".format(data))
-                self._recvbuf.put(data, block=True, timeout=None)
-            except queue.Full:
-                logger.error("Receive buffer is full. Dropping data segment.")
-                return
-            # Send acknowledgment for the received data segment
-            ack_segment = self.build_segment_header(seqnum, self._next_seqnum, ack_set=True)
-            self._lossy_layer.send_segment(ack_segment)
-            logger.info("Sent acknowledgment for sequence number: {}".format(seqnum))
-            # Update the expected sequence number
-            self._next_seqnum += 1
-
-        else:
-            logger.warning("Unexpected segment received")
+        # Put the received data into the receive buffer
+        try:
+            data_start = HEADER_SIZE  # Assuming the header size is known
+            data = segment[data_start:]
+            logger.info("Data part of segment: {}".format(data))
+            self._recvbuf.put(data, block=True, timeout=None)
+        except queue.Full:
+            logger.error("Receive buffer is full. Dropping data segment.")
+            return
+        # Send acknowledgment for the received data segment
+        ack_segment = self.build_segment_header(seqnum, self._next_seqnum, ack_set=True)
+        self._lossy_layer.send_segment(ack_segment)
+        logger.info("Sent acknowledgment for sequence number: {}".format(seqnum))
+        # Update the expected sequence number
+        self._next_seqnum += 1
 
     def lossy_layer_tick(self):
         """Called by the lossy layer whenever no segment has arrived for
@@ -255,7 +218,7 @@ class BTCPServerSocket(BTCPSocket):
         elif curtime - self._timer > self._timeout * 1_000_000:
             logger.debug("Timer elapsed. Connection or transmission timed out.")
             # Take appropriate action here, such as closing the connection or retransmitting data
-            self.close()  # For example, close the connection
+            # self.close()  # For example, close the connection
             # Or trigger retransmission
         else:
             logger.debug("Timer not yet elapsed.")

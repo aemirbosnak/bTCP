@@ -55,7 +55,7 @@ def btcp_file_transfer_client():
                         type=int, default=100)
     parser.add_argument("-t", "--timeout",
                         help="Define bTCP timeout in milliseconds",
-                        type=int, default=120)
+                        type=int, default=100)
     parser.add_argument("-i", "--input",
                         help="File to send",
                         default="very_small_input.py")
@@ -121,10 +121,6 @@ def btcp_file_transfer_client():
     # Note that by default this doesn't do *anything*.
     logger.info("Calling shutdown")
     s.shutdown()
-
-    # Clean up any state
-    logger.info("Calling close")
-    s.close()
 
 
 if __name__ == "__main__":
