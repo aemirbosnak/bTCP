@@ -21,8 +21,8 @@ from large_input import TEST_BYTES_85MIB
 from small_input import TEST_BYTES_72KIB
 
 
-SMALL_INPUTFILE = "small_input.py"
-LARGE_INPUTFILE = "large_input.py"
+SMALL_INPUTFILE = "very_small_input.py"
+LARGE_INPUTFILE = "small_input.py"
 OUTPUTFILE = "testframework-output.file"
 TIMEOUT = 100
 WINSIZE = 100
