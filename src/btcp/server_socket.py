@@ -66,13 +66,13 @@ class BTCPServerSocket(BTCPSocket):
 
             elif syn_set:
                 logger.info("Received duplicate SYN segment, resending SYN/ACK")
-                synack_segment = self.build_segment_header(self._next_seqnum, seqnum + 1, syn_set=True, ack_set=True)
+                synack_segment = self.build_segment_header(self._seq, seqnum + 1, syn_set=True, ack_set=True)
                 self._lossy_layer.send_segment(synack_segment)
 
             elif time.time() - self._timer > self._timeout:
                 if self._retry_count < self._max_retries:
                     logger.info("Timeout: Retrying SYN/ACK")
-                    synack_segment = self.build_segment_header(self._next_seqnum, seqnum + 1, syn_set=True, ack_set=True)
+                    synack_segment = self.build_segment_header(self._seq, seqnum + 1, syn_set=True, ack_set=True)
                     self._lossy_layer.send_segment(synack_segment)
                     self._timer = time.time()
                     self._retry_count += 1
