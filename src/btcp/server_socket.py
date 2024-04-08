@@ -32,8 +32,25 @@ class BTCPServerSocket(BTCPSocket):
         self._recvbuf = queue.Queue(maxsize=1000)
         logger.info("Socket initialized with recvbuf size 1000")
 
-        # Make sure the example timer exists from the start.
-        self._example_timer = None
+    def _start_timer(self):
+        if not self._timer:
+            logger.debug("Starting timer.")
+            self._timer = time.monotonic_ns()
+        else:
+            logger.debug("Timer already running.")
+
+    def _timer_expired(self):
+        curtime = time.monotonic_ns()
+        if not self._timer:
+            logger.debug("Timer not running.")
+            return False
+        elif curtime - self._timer > self._timeout * 1_000_000:
+            logger.debug("Timer elapsed. Connection or transmission timed out.")
+            self._timer = time.monotonic_ns()
+            return True
+        else:
+            logger.debug("Timer not yet elapsed.")
+            return False
 
     def lossy_layer_segment_received(self, segment):
         """Called by the lossy layer whenever a segment arrives."""
@@ -146,27 +163,6 @@ class BTCPServerSocket(BTCPSocket):
         TIMER_TICK milliseconds. Defaults to 100ms, can be set in constants.py.
         """
         logger.debug("lossy_layer_tick called")
-        self._expire_timers()
-
-    def _start_timer(self):
-        if not self._example_timer:
-            logger.debug("Starting timer.")
-            self._example_timer = time.monotonic_ns()
-        else:
-            logger.debug("Timer already running.")
-
-    def _expire_timers(self):
-        curtime = time.monotonic_ns()
-        if not self._example_timer:
-            logger.debug("Timer not running.")
-        elif curtime - self._example_timer > self._timeout * 1_000_000:
-            logger.debug("Timer elapsed. Connection or transmission timed out.")
-            # Take appropriate action here, such as closing the connection or retransmitting data
-            # self.close()  # For example, close the connection
-            # Or trigger retransmission
-        else:
-            logger.debug("Timer not yet elapsed.")
-            self._example_timer = time.monotonic_ns()
 
     def accept(self):
         """Accept and perform the bTCP three-way handshake to establish a
@@ -175,6 +171,16 @@ class BTCPServerSocket(BTCPSocket):
         logger.debug("accept called")
         self._state = BTCPStates.ACCEPTING
         self._start_timer()
+
+        while not self._timer_expired():
+            logger.debug("Waiting for connection")
+            if self._state == BTCPStates.SYN_RCVD:
+                return True     # Connection established
+            time.sleep(0.1)
+
+        logger.error("Failed to establish connection. Aborting connect.")
+        self.close()
+        return False
 
     def recv(self):
         """Return data that was received from the client to the application in
