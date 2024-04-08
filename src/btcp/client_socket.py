@@ -30,11 +30,32 @@ class BTCPClientSocket(BTCPSocket):
         self._max_retries = MAX_RETRIES
         self._retry_count = 0
         self._timeout = timeout
+        self._timer = None
 
         # The data buffer used by send() to send data from the application
         # thread into the network thread. Bounded in size.
         self._sendbuf = queue.Queue(maxsize=1000)
         logger.info("Socket initialized with sendbuf size 1000")
+
+    def _start_timer(self):
+        if not self._timer:
+            logger.debug("Starting timer.")
+            self._timer = time.monotonic_ns()
+        else:
+            logger.debug("Timer already running.")
+
+    def _timer_expired(self):
+        curtime = time.monotonic_ns()
+        if not self._timer:
+            logger.debug("Timer not running.")
+            return False
+        elif curtime - self._timer > self._timeout * 1_000_000:
+            logger.debug("Timer elapsed. Connection or transmission timed out.")
+            self._timer = time.monotonic_ns()
+            return True
+        else:
+            logger.debug("Timer not yet elapsed.")
+            return False
 
     def lossy_layer_segment_received(self, segment):
         """Called by the lossy layer whenever a segment arrives."""
@@ -98,28 +119,34 @@ class BTCPClientSocket(BTCPSocket):
         """Perform the bTCP three-way handshake to establish a connection."""
         logger.debug("connect called")
 
-        while self._retry_count < self._max_retries:
-            # Send SYN segment
-            initial_seqnum = random.randint(0, 65535)
-            logger.debug("Initial sequence number: {} ".format(initial_seqnum))
-            syn_segment = self.build_segment_header(initial_seqnum, 0, syn_set=True)
-            self._lossy_layer.send_segment(syn_segment)
-            self._state = BTCPStates.SYN_SENT
-            logger.debug("SYN sent with seq: {}".format(initial_seqnum))
+        # Send SYN segment
+        initial_seqnum = random.randint(0, 65535)
+        logger.debug("Initial sequence number: {} ".format(initial_seqnum))
+        syn_segment = self.build_segment_header(initial_seqnum, 0, syn_set=True)
+        self._lossy_layer.send_segment(syn_segment)
+        self._state = BTCPStates.SYN_SENT
+        self._start_timer()
+        logger.debug("SYN sent with seq: {}".format(initial_seqnum))
 
+        while self._retry_count < self._max_retries:
             # Wait for SYN/ACK
-            start_time = time.time()
-            while time.time() - start_time < self._timeout:
+            while not self._timer_expired():
                 logger.debug("Waiting for SYN/ACK")
                 if self._state == BTCPStates.ESTABLISHED:
                     logger.debug("Connection established")
-                    return  # Connection established
+                    return True     # Connection established
                 time.sleep(0.1)
+
+            logger.debug("Retrying with duplicate SYN segment")
+            self._lossy_layer.send_segment(syn_segment)
+            self._state = BTCPStates.SYN_SENT
+            logger.debug("Retry: {}".format(self._retry_count))
 
             self._retry_count += 1
 
         logger.error("Failed to establish connection. Aborting connect.")
         self.close()
+        return False
 
     def send(self, data):
         """Send data originating from the application in a reliable way to the server."""

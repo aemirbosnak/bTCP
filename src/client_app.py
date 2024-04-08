@@ -75,12 +75,12 @@ def btcp_file_transfer_client():
     logger.info("Creating client socket")
     s = BTCPClientSocket(args.window, args.timeout)
 
-    # Connect. By default this doesn't actually do anything: our rudimentary
-    # implementation relies on you starting the server before the client,
-    # and just dumps the entire file into the network immediately.
     logger.info("Connecting")
-    s.connect()
-    logger.info("Connected")
+    if s.connect():
+        logger.info("Connected")
+    else:
+        logger.info("Could not connect to server")
+        return
 
     # Actually open the file, read the file, and send the data.
     logger.info("Opening file")
