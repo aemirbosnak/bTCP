@@ -54,13 +54,13 @@ class BTCPServerSocket(BTCPSocket):
 
         elif self._state == BTCPStates.ACCEPTING:
             if syn_set:  # SYN segment
-                logger.warning("SYN received with seq: {}, ack: {}".format(seqnum, acknum))
+                logger.debug("SYN received with seq: {}, ack: {}".format(seqnum, acknum))
                 self._syn_segment_received(seqnum)
 
         elif self._state == BTCPStates.SYN_RCVD:
             if ack_set:
                 logger.info("Connection established")
-                logger.warning("ACK received with seq: {}, ack: {}, connection established".format(seqnum, acknum))
+                logger.debug("ACK received with seq: {}, ack: {}, connection established".format(seqnum, acknum))
                 self._seq = acknum
                 self._state = BTCPStates.ESTABLISHED
 
@@ -88,7 +88,7 @@ class BTCPServerSocket(BTCPSocket):
 
         elif self._state == BTCPStates.CLOSING:
             if ack_set:
-                logger.warning("Final ACK received with seq: {}, ack: {}".format(seqnum, acknum))
+                logger.debug("Final ACK received with seq: {}, ack: {}".format(seqnum, acknum))
                 self._state = BTCPStates.CLOSED
                 self.close()
 
@@ -103,7 +103,7 @@ class BTCPServerSocket(BTCPSocket):
 
         # Send SYN/ACK
         synack_segment = self.build_segment_header(self._seq, seqnum + 1, syn_set=True, ack_set=True)
-        logger.warning("SYN/ACK sent with seq: {} ack: {}".format(self._seq, seqnum+1))
+        logger.debug("SYN/ACK sent with seq: {} ack: {}".format(self._seq, seqnum+1))
         self._lossy_layer.send_segment(synack_segment)
         self._state = BTCPStates.SYN_RCVD
         self._timer = time.time()
@@ -112,18 +112,18 @@ class BTCPServerSocket(BTCPSocket):
         logger.debug("_fin_segment_received called")
         logger.info("Received data segment with sequence number: {}".format(seqnum))
 
-        logger.warning("FIN received with seq: {}".format(seqnum))
+        logger.debug("FIN received with seq: {}".format(seqnum))
 
         # Send FIN/ACK segment
         finack_segment = self.build_segment_header(self._seq, seqnum + 1, ack_set=True, fin_set=True)
         self._lossy_layer.send_segment(finack_segment)
-        logger.warning("FIN/ACK sent with seq: {} ack: {}".format(self._seq, seqnum + 1))
+        logger.debug("FIN/ACK sent with seq: {} ack: {}".format(self._seq, seqnum + 1))
 
         self._state = BTCPStates.CLOSING
 
     def _data_segment_received(self, segment, seqnum):
         logger.debug("_data_segment_received called")
-        logger.warning("Data received with seq: {}".format(seqnum))
+        logger.debug("Data received with seq: {}".format(seqnum))
 
         # Put the received data into the receive buffer
         try:
@@ -139,7 +139,7 @@ class BTCPServerSocket(BTCPSocket):
         self._ack = seqnum + 1
         ack_segment = self.build_segment_header(self._seq, self._ack, ack_set=True)
         self._lossy_layer.send_segment(ack_segment)
-        logger.warning("ACK sent with seq: {}, ack: {}".format(self._seq, self._ack))
+        logger.debug("ACK sent with seq: {}, ack: {}".format(self._seq, self._ack))
 
     def lossy_layer_tick(self):
         """Called by the lossy layer whenever no segment has arrived for
@@ -188,7 +188,7 @@ class BTCPServerSocket(BTCPSocket):
             # Wait until one segment becomes available in the buffer, or
             # timeout signalling disconnect.
             logger.info("Blocking get for first chunk of data.")
-            data.extend(self._recvbuf.get(block=True, timeout=30))
+            data.extend(self._recvbuf.get(block=True, timeout=5))
             logger.debug("First chunk of data retrieved.")
             logger.debug("Looping over rest of queue.")
             while True:
@@ -201,7 +201,7 @@ class BTCPServerSocket(BTCPSocket):
             logger.debug("Queue emptied or timeout reached")
             pass
         if not data:
-            logger.info("No data received for 30 seconds.")
+            logger.info("No data received for 5 seconds.")
             logger.info("Returning empty bytes to caller, signalling disconnect.")
         return bytes(data)
 
@@ -209,7 +209,7 @@ class BTCPServerSocket(BTCPSocket):
         """Cleans up any internal state by at least destroying the instance of
         the lossy layer in use. Also called by the destructor of this socket.
         """
-        logger.warning("close called")
+        logger.debug("close called")
         if self._lossy_layer is not None:
             self._lossy_layer.destroy()
         self._lossy_layer = None

@@ -51,29 +51,29 @@ class BTCPClientSocket(BTCPSocket):
 
         elif self._state == BTCPStates.SYN_SENT:
             if syn_set and ack_set:
-                logger.warning("Received SYN/ACK segment")
+                logger.debug("Received SYN/ACK segment")
 
                 # Send ACK segment
                 ack_segment = self.build_segment_header(acknum, seqnum + 1, ack_set=True)
                 self._lossy_layer.send_segment(ack_segment)
-                logger.warning("ACK sent with seq: {} ack: {}".format(acknum, seqnum + 1))
+                logger.debug("ACK sent with seq: {} ack: {}".format(acknum, seqnum + 1))
 
                 self._next_seqnum = acknum
                 self._state = BTCPStates.ESTABLISHED
 
         elif self._state == BTCPStates.ESTABLISHED:
             if ack_set:
-                logger.warning("ACK received with seq: {} ack: {}".format(seqnum, acknum))
+                logger.debug("ACK received with seq: {} ack: {}".format(seqnum, acknum))
                 self._ack_received = acknum
 
         elif self._state == BTCPStates.FIN_SENT:
             if ack_set and fin_set:
-                logger.warning("FIN/ACK received with seq: {} ack: {}".format(seqnum, acknum))
+                logger.debug("FIN/ACK received with seq: {} ack: {}".format(seqnum, acknum))
 
                 # Send ACK segment
                 ack_segment = self.build_segment_header(acknum, seqnum + 1, ack_set=True)
                 self._lossy_layer.send_segment(ack_segment)
-                logger.warning("ACK sent with seq: {} ack: {}".format(acknum, seqnum + 1))
+                logger.debug("ACK sent with seq: {} ack: {}".format(acknum, seqnum + 1))
 
                 self._state = BTCPStates.CLOSED
                 self.close()
@@ -88,7 +88,7 @@ class BTCPClientSocket(BTCPSocket):
                 logger.debug("Getting segment from buffer.")
                 segment = self._sendbuf.get_nowait()
                 logger.debug(segment)
-                logger.warning("Sending segment with seq: {}".format(self._next_seqnum))
+                logger.debug("Sending segment with seq: {}".format(self._next_seqnum))
                 self._lossy_layer.send_segment(segment)
 
         except queue.Empty:
@@ -101,11 +101,11 @@ class BTCPClientSocket(BTCPSocket):
         while self._retry_count < self._max_retries:
             # Send SYN segment
             initial_seqnum = random.randint(0, 65535)
-            logger.warning("Initial sequence number: {} ".format(initial_seqnum))
+            logger.debug("Initial sequence number: {} ".format(initial_seqnum))
             syn_segment = self.build_segment_header(initial_seqnum, 0, syn_set=True)
             self._lossy_layer.send_segment(syn_segment)
             self._state = BTCPStates.SYN_SENT
-            logger.warning("SYN sent with seq: {}".format(initial_seqnum))
+            logger.debug("SYN sent with seq: {}".format(initial_seqnum))
 
             # Wait for SYN/ACK
             start_time = time.time()
@@ -167,7 +167,7 @@ class BTCPClientSocket(BTCPSocket):
             fin_segment = self.build_segment_header(self._next_seqnum, 0, fin_set=True)
             self._lossy_layer.send_segment(fin_segment)
             self._state = BTCPStates.FIN_SENT
-            logger.warning("FIN sent with seq: {}".format(self._next_seqnum))
+            logger.debug("FIN sent with seq: {}".format(self._next_seqnum))
 
             # Wait for FIN/ACK segment or timeout
             start_time = time.time()
@@ -181,7 +181,7 @@ class BTCPClientSocket(BTCPSocket):
     def close(self):
         """Cleans up any internal state by at least destroying the instance of
         the lossy layer in use. Also called by the destructor of this socket."""
-        logger.warning("close called")
+        logger.debug("close called")
         if self._lossy_layer is not None:
             self._lossy_layer.destroy()
         self._lossy_layer = None
