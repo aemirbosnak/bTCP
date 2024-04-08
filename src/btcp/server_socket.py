@@ -5,6 +5,7 @@ from btcp.constants import *
 import queue
 import time
 import logging
+import random
 
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,8 @@ class BTCPServerSocket(BTCPSocket):
         super().__init__(window, timeout)
         self._lossy_layer = LossyLayer(self, SERVER_IP, SERVER_PORT, CLIENT_IP, CLIENT_PORT)
 
-        self._next_seqnum = 0
+        self._ack = 0
+        self._seq = 0
         self._state = BTCPStates.CLOSED
 
         self._max_retries = MAX_RETRIES
@@ -42,7 +44,7 @@ class BTCPServerSocket(BTCPSocket):
         # Unpack segment header
         seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum = self.unpack_segment_header(segment[:10])
         # Log the extracted values
-        logger.info(
+        logger.debug(
             "Received segment: seqnum={}, acknum={}, syn_set={}, ack_set={}, fin_set={}, window={}, length={}, checksum={}"
             .format(seqnum, acknum, syn_set, ack_set, fin_set, window, length, checksum))
 
@@ -52,11 +54,14 @@ class BTCPServerSocket(BTCPSocket):
 
         elif self._state == BTCPStates.ACCEPTING:
             if syn_set:  # SYN segment
+                logger.warning("SYN received with seq: {}, ack: {}".format(seqnum, acknum))
                 self._syn_segment_received(seqnum)
 
         elif self._state == BTCPStates.SYN_RCVD:
             if ack_set:
                 logger.info("Connection established")
+                logger.warning("ACK received with seq: {}, ack: {}, connection established".format(seqnum, acknum))
+                self._seq = acknum
                 self._state = BTCPStates.ESTABLISHED
 
             elif syn_set:
@@ -81,13 +86,24 @@ class BTCPServerSocket(BTCPSocket):
             elif not syn_set and not ack_set and fin_set:  # FIN segment
                 self._fin_segment_received(seqnum)
 
+        elif self._state == BTCPStates.CLOSING:
+            if ack_set:
+                logger.warning("Final ACK received with seq: {}, ack: {}".format(seqnum, acknum))
+                self._state = BTCPStates.CLOSED
+                self.close()
+
         return
 
     def _syn_segment_received(self, seqnum):
-        logger.info("Received SYN segment")
+        logger.debug("Received SYN segment")
+
+        initial_seqnum = random.randint(0, 65535)
+        self._seq = initial_seqnum
+        logging.warning("Initial sequence number: {}".format(self._seq))
 
         # Send SYN/ACK
-        synack_segment = self.build_segment_header(self._next_seqnum, seqnum + 1, syn_set=True, ack_set=True)
+        synack_segment = self.build_segment_header(self._seq, seqnum + 1, syn_set=True, ack_set=True)
+        logger.warning("SYN/ACK sent with seq: {} ack: {}".format(self._seq, seqnum+1))
         self._lossy_layer.send_segment(synack_segment)
         self._state = BTCPStates.SYN_RCVD
         self._timer = time.time()
@@ -96,15 +112,18 @@ class BTCPServerSocket(BTCPSocket):
         logger.debug("_fin_segment_received called")
         logger.info("Received data segment with sequence number: {}".format(seqnum))
 
-        # Send FIN/ACK segment
-        finack_segment = self.build_segment_header(seqnum, self._next_seqnum, ack_set=True, fin_set=True)
-        self._lossy_layer.send_segment(finack_segment)
+        logger.warning("FIN received with seq: {}".format(seqnum))
 
-        self.close()
+        # Send FIN/ACK segment
+        finack_segment = self.build_segment_header(self._seq, seqnum + 1, ack_set=True, fin_set=True)
+        self._lossy_layer.send_segment(finack_segment)
+        logger.warning("FIN/ACK sent with seq: {} ack: {}".format(self._seq, seqnum + 1))
+
+        self._state = BTCPStates.CLOSING
 
     def _data_segment_received(self, segment, seqnum):
         logger.debug("_data_segment_received called")
-        logger.info("Received data segment with sequence number: {}".format(seqnum))
+        logger.warning("Data received with seq: {}".format(seqnum))
 
         # Put the received data into the receive buffer
         try:
@@ -116,13 +135,11 @@ class BTCPServerSocket(BTCPSocket):
             logger.error("Receive buffer is full. Dropping data segment.")
             return
 
-        # Send acknowledgment for the received data segment
-        ack_segment = self.build_segment_header(seqnum, self._next_seqnum, ack_set=True)
+        # Send ACK segment
+        self._ack = seqnum + 1
+        ack_segment = self.build_segment_header(self._seq, self._ack, ack_set=True)
         self._lossy_layer.send_segment(ack_segment)
-        logger.info("Sent acknowledgment for sequence number: {}".format(seqnum))
-
-        # Update the expected sequence number
-        self._next_seqnum += 1
+        logger.warning("ACK sent with seq: {}, ack: {}".format(self._seq, self._ack))
 
     def lossy_layer_tick(self):
         """Called by the lossy layer whenever no segment has arrived for
@@ -192,7 +209,7 @@ class BTCPServerSocket(BTCPSocket):
         """Cleans up any internal state by at least destroying the instance of
         the lossy layer in use. Also called by the destructor of this socket.
         """
-        logger.debug("close called")
+        logger.warning("close called")
         if self._lossy_layer is not None:
             self._lossy_layer.destroy()
         self._lossy_layer = None
