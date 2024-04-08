@@ -125,6 +125,23 @@ class BTCPServerSocket(BTCPSocket):
         self._state = BTCPStates.SYN_RCVD
         self._timer = time.time()
 
+        while self._retry_count < self._max_retries:
+            # Wait for ACK segment or timeout
+            while not self._timer_expired():
+                if self._state == BTCPStates.ESTABLISHED:
+                    return  # ACK received and connection established
+                time.sleep(0.1)
+
+            logger.debug("Retrying with duplicate SYN/ACK segment")
+            self._lossy_layer.send_segment(synack_segment)
+            self._state = BTCPStates.SYN_RCVD
+            logger.debug("Retry: {}".format(self._retry_count))
+
+            self._retry_count += 1
+
+        logger.error("Failed to receive ACK. Back to ACCEPTING state")
+        self._state = BTCPStates.ACCEPTING
+
     def _fin_segment_received(self, seqnum):
         logger.debug("_fin_segment_received called")
         logger.info("Received data segment with sequence number: {}".format(seqnum))
