@@ -72,7 +72,7 @@ class BTCPClientSocket(BTCPSocket):
 
         elif self._state == BTCPStates.SYN_SENT:
             if syn_set and ack_set:
-                logger.debug("Received SYN/ACK segment")
+                logger.debug("SYN/ACK received with seq: {} ack: {}".format(seqnum, acknum))
 
                 # Send ACK segment
                 ack_segment = self.build_segment_header(acknum, seqnum + 1, ack_set=True)
@@ -187,23 +187,29 @@ class BTCPClientSocket(BTCPSocket):
     def shutdown(self):
         """Perform the bTCP three-way finish to shutdown the connection."""
         logger.debug("shutdown called")
-        self._retry_count = 0
+
+        # Send FIN segment
+        fin_segment = self.build_segment_header(self._next_seqnum, 0, fin_set=True)
+        self._lossy_layer.send_segment(fin_segment)
+        self._state = BTCPStates.FIN_SENT
+        logger.debug("FIN sent with seq: {}".format(self._next_seqnum))
 
         while self._retry_count < self._max_retries:
-            # Send FIN segment
-            fin_segment = self.build_segment_header(self._next_seqnum, 0, fin_set=True)
-            self._lossy_layer.send_segment(fin_segment)
-            self._state = BTCPStates.FIN_SENT
-            logger.debug("FIN sent with seq: {}".format(self._next_seqnum))
-
             # Wait for FIN/ACK segment or timeout
-            start_time = time.time()
-            while time.time() - start_time < self._timeout:
+            while not self._timer_expired():
                 if self._state == BTCPStates.CLOSED:
                     return  # Connection successfully closed
                 time.sleep(0.1)
 
+            logger.debug("Retrying with duplicate FIN segment")
+            self._lossy_layer.send_segment(fin_segment)
+            self._state = BTCPStates.FIN_SENT
+            logger.debug("Retry: {}".format(self._retry_count))
+
             self._retry_count += 1
+
+        logger.error("Failed to receive FIN/ACK. Closing connection")
+        self.close()
 
     def close(self):
         """Cleans up any internal state by at least destroying the instance of
