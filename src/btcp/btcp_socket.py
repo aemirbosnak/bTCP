@@ -82,3 +82,12 @@ class BTCPSocket:
         syn_set = bool(flags >> 2)
 
         return seqnum, acknum, syn_set, ack_set, fin_set, window, data_length, checksum
+
+    @staticmethod
+    def insert_checksum(segment):
+        """Takes a segment with 0 as the checksum and inserts the correct one"""
+
+        checksum = BTCPSocket.in_cksum(segment)
+        checksum_bytes = struct.pack("!h", checksum)
+
+        return segment[:8] + checksum_bytes + segment[10:]
