@@ -38,11 +38,8 @@ class BTCPClientSocket(BTCPSocket):
         logger.info("Socket initialized with sendbuf size 1000")
 
     def _start_timer(self):
-        if not self._timer:
-            logger.debug("Starting timer.")
-            self._timer = time.monotonic_ns()
-        else:
-            logger.debug("Timer already running.")
+        logger.debug("Starting timer.")
+        self._timer = time.monotonic_ns()
 
     def _timer_expired(self):
         curtime = time.monotonic_ns()
@@ -96,7 +93,6 @@ class BTCPClientSocket(BTCPSocket):
                 self._lossy_layer.send_segment(ack_segment)
                 logger.debug("ACK sent with seq: {} ack: {}".format(acknum, seqnum + 1))
 
-                self._state = BTCPStates.CLOSED
                 self.close()
 
     def lossy_layer_tick(self):
@@ -132,6 +128,7 @@ class BTCPClientSocket(BTCPSocket):
             # Wait for SYN/ACK
             while not self._timer_expired():
                 logger.debug("Waiting for SYN/ACK")
+                logger.warning(self._state)
                 if self._state == BTCPStates.ESTABLISHED:
                     logger.debug("Connection established")
                     return True     # Connection established
@@ -215,6 +212,7 @@ class BTCPClientSocket(BTCPSocket):
         """Cleans up any internal state by at least destroying the instance of
         the lossy layer in use. Also called by the destructor of this socket."""
         logger.debug("close called")
+        self._state = BTCPStates.CLOSED
         if self._lossy_layer is not None:
             self._lossy_layer.destroy()
         self._lossy_layer = None

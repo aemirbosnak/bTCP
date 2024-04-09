@@ -20,9 +20,10 @@ class BTCPServerSocket(BTCPSocket):
         super().__init__(window, timeout)
         self._lossy_layer = LossyLayer(self, SERVER_IP, SERVER_PORT, CLIENT_IP, CLIENT_PORT)
 
+        self._state = BTCPStates.CLOSED
+
         self._ack = 0
         self._seq = 0
-        self._state = BTCPStates.CLOSED
 
         self._max_retries = MAX_RETRIES
         self._retry_count = 0
@@ -33,11 +34,8 @@ class BTCPServerSocket(BTCPSocket):
         logger.info("Socket initialized with recvbuf size 1000")
 
     def _start_timer(self):
-        if not self._timer:
-            logger.debug("Starting timer.")
-            self._timer = time.monotonic_ns()
-        else:
-            logger.debug("Timer already running.")
+        logger.debug("Starting timer.")
+        self._timer = time.monotonic_ns()
 
     def _timer_expired(self):
         curtime = time.monotonic_ns()
@@ -106,7 +104,6 @@ class BTCPServerSocket(BTCPSocket):
         elif self._state == BTCPStates.CLOSING:
             if ack_set:
                 logger.debug("Final ACK received with seq: {}, ack: {}".format(seqnum, acknum))
-                self._state = BTCPStates.CLOSED
                 self.close()
 
         return
@@ -120,10 +117,10 @@ class BTCPServerSocket(BTCPSocket):
 
         # Send SYN/ACK
         synack_segment = self.build_segment_header(self._seq, seqnum + 1, syn_set=True, ack_set=True)
-        logger.debug("SYN/ACK sent with seq: {} ack: {}".format(self._seq, seqnum+1))
         self._lossy_layer.send_segment(synack_segment)
         self._state = BTCPStates.SYN_RCVD
-        self._timer = time.time()
+        self._start_timer()
+        logger.debug("SYN/ACK sent with seq: {} ack: {}".format(self._seq, seqnum + 1))
 
         while self._retry_count < self._max_retries:
             # Wait for ACK segment or timeout
@@ -151,9 +148,18 @@ class BTCPServerSocket(BTCPSocket):
         # Send FIN/ACK segment
         finack_segment = self.build_segment_header(self._seq, seqnum + 1, ack_set=True, fin_set=True)
         self._lossy_layer.send_segment(finack_segment)
+        self._state = BTCPStates.CLOSING
+        self._start_timer()
         logger.debug("FIN/ACK sent with seq: {} ack: {}".format(self._seq, seqnum + 1))
 
-        self._state = BTCPStates.CLOSING
+        while not self._timer_expired():
+            logger.debug("Waiting for ACK")
+            if self._state == BTCPStates.CLOSED:
+                return  # Connection closed
+            time.sleep(0.1)
+
+        logger.error("Failed to receive ACK. Closing connection")
+        self.close()
 
     def _data_segment_received(self, segment, seqnum):
         logger.debug("_data_segment_received called")
@@ -189,11 +195,13 @@ class BTCPServerSocket(BTCPSocket):
         self._state = BTCPStates.ACCEPTING
         self._start_timer()
 
-        while not self._timer_expired():
-            logger.debug("Waiting for connection")
-            if self._state == BTCPStates.SYN_RCVD:
-                return True     # Connection established
-            time.sleep(0.1)
+        while self._retry_count < self._max_retries:
+            while not self._timer_expired():
+                logger.debug("Waiting for connection")
+                if self._state == BTCPStates.SYN_RCVD:
+                    return True     # Connection established
+                time.sleep(0.1)
+            self._retry_count += 1
 
         logger.error("Failed to establish connection. Aborting connect.")
         self.close()
@@ -233,6 +241,7 @@ class BTCPServerSocket(BTCPSocket):
         the lossy layer in use. Also called by the destructor of this socket.
         """
         logger.debug("close called")
+        self._state = BTCPStates.CLOSED
         if self._lossy_layer is not None:
             self._lossy_layer.destroy()
         self._lossy_layer = None
