@@ -53,13 +53,17 @@ class BTCPClientSocket(BTCPSocket):
             if syn_set and ack_set:
                 logger.debug("Received SYN/ACK segment")
 
-                # Send ACK segment
-                ack_segment = self.build_segment_header(acknum, seqnum + 1, ack_set=True)
-                self._lossy_layer.send_segment(ack_segment)
-                logger.debug("ACK sent with seq: {} ack: {}".format(acknum, seqnum + 1))
+                self._ack_received = acknum
+                if self._ack_received == self._next_seqnum:
+                    logger.debug("Correct ACK")
+                    # Send ACK segment
+                    ack_segment = self.build_segment_header(acknum, seqnum + 1, ack_set=True)
+                    self._lossy_layer.send_segment(ack_segment)
+                    logger.debug("ACK sent with seq: {} ack: {}".format(acknum, seqnum + 1))
 
-                self._next_seqnum = acknum
-                self._state = BTCPStates.ESTABLISHED
+                    self._state = BTCPStates.ESTABLISHED
+                else:
+                    logger.error("Wrong ACK received")
 
         elif self._state == BTCPStates.ESTABLISHED:
             if ack_set:
@@ -70,13 +74,18 @@ class BTCPClientSocket(BTCPSocket):
             if ack_set and fin_set:
                 logger.debug("FIN/ACK received with seq: {} ack: {}".format(seqnum, acknum))
 
-                # Send ACK segment
-                ack_segment = self.build_segment_header(acknum, seqnum + 1, ack_set=True)
-                self._lossy_layer.send_segment(ack_segment)
-                logger.debug("ACK sent with seq: {} ack: {}".format(acknum, seqnum + 1))
+                self._ack_received = acknum
+                if self._ack_received == self._next_seqnum:
+                    logger.debug("Correct ACK")
+                    # Send ACK segment
+                    ack_segment = self.build_segment_header(acknum, seqnum, ack_set=True)
+                    self._lossy_layer.send_segment(ack_segment)
+                    logger.debug("ACK sent with seq: {} ack: {}".format(acknum, seqnum + 1))
 
-                self._state = BTCPStates.CLOSED
-                self.close()
+                    self._state = BTCPStates.CLOSED
+                    self.close()
+                else:
+                    logger.error("Wrong ACK received")
 
     def lossy_layer_tick(self):
         """Called by the lossy layer whenever no segment has arrived for
@@ -103,6 +112,7 @@ class BTCPClientSocket(BTCPSocket):
         logger.debug("Initial sequence number: {} ".format(initial_seqnum))
         syn_segment = self.build_segment_header(initial_seqnum, 0, syn_set=True)
         self._lossy_layer.send_segment(syn_segment)
+        self._next_seqnum = initial_seqnum + 1
         self._state = BTCPStates.SYN_SENT
         logger.debug("SYN sent with seq: {}".format(initial_seqnum))
 
@@ -172,6 +182,7 @@ class BTCPClientSocket(BTCPSocket):
             # Send FIN segment
             fin_segment = self.build_segment_header(self._next_seqnum, 0, fin_set=True)
             self._lossy_layer.send_segment(fin_segment)
+            self._next_seqnum += 1
             self._state = BTCPStates.FIN_SENT
             logger.debug("FIN sent with seq: {}".format(self._next_seqnum))
 
