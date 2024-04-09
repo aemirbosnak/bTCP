@@ -1,19 +1,20 @@
+# AhmetEmir Bosnak: 1129476, Jochem Plattel: s1105037
+
 import struct
 import logging
 from enum import IntEnum
-
 
 logger = logging.getLogger(__name__)
 
 
 class BTCPStates(IntEnum):
-    CLOSED      = 0
-    ACCEPTING   = 1
-    SYN_SENT    = 2
-    SYN_RCVD    = 3
+    CLOSED = 0
+    ACCEPTING = 1
+    SYN_SENT = 2
+    SYN_RCVD = 3
     ESTABLISHED = 4
-    FIN_SENT    = 5
-    CLOSING     = 6
+    FIN_SENT = 5
+    CLOSING = 6
 
 
 class BTCPSignals(IntEnum):

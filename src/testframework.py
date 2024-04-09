@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# AhmetEmir Bosnak: 1129476, Jochem Plattel: s1105037
 
 import unittest
 import filecmp

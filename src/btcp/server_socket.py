@@ -1,10 +1,11 @@
+# AhmetEmir Bosnak: 1129476, Jochem Plattel: s1105037
+
 from btcp.btcp_socket import BTCPSocket, BTCPStates, BTCPSignals
 from btcp.lossy_layer import LossyLayer
 from btcp.constants import *
 
 import queue
 import time
-import random
 import logging
 
 
