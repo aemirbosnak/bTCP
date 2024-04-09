@@ -111,7 +111,6 @@ class BTCPClientSocket(BTCPSocket):
             start_time = time.time()
             while time.time() - start_time < self._timeout:
                 logger.debug("Waiting for SYN/ACK")
-                logger.warning(self._state)
                 if self._state == BTCPStates.ESTABLISHED:
                     logger.debug("Connection established")
                     return True  # Connection established
