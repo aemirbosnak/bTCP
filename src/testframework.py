@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
+# AhmetEmir Bosnak: 1129476, Jochem Plattel: s1105037
 
 import unittest
 import filecmp
 import threading
-import time
-import signal
 import sys
 
 """This exposes a constant bytes object called TEST_BYTES_85MIB which, as the
@@ -21,8 +20,8 @@ from large_input import TEST_BYTES_85MIB
 from small_input import TEST_BYTES_72KIB
 
 
-SMALL_INPUTFILE = "very_small_input.py"
-LARGE_INPUTFILE = "small_input.py"
+SMALL_INPUTFILE = "small_input.py"
+LARGE_INPUTFILE = "large_input.py"
 OUTPUTFILE = "testframework-output.file"
 TIMEOUT = 100
 WINSIZE = 100

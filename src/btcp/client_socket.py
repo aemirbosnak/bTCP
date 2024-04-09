@@ -1,3 +1,5 @@
+# AhmetEmir Bosnak: 1129476, Jochem Plattel: s1105037
+
 from btcp.btcp_socket import BTCPSocket, BTCPStates
 from btcp.lossy_layer import LossyLayer
 from btcp.constants import *

@@ -1,3 +1,5 @@
+# AhmetEmir Bosnak: 1129476, Jochem Plattel: s1105037
+
 """
 TIMER_TICK:
     timer tick in milliseconds; how much time is allowed to pass with no

@@ -1,3 +1,5 @@
+# AhmetEmir Bosnak: 1129476, Jochem Plattel: s1105037
+
 import struct
 import logging
 from enum import IntEnum
