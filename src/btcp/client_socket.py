@@ -98,28 +98,35 @@ class BTCPClientSocket(BTCPSocket):
         """Perform the bTCP three-way handshake to establish a connection."""
         logger.debug("connect called")
 
-        while self._retry_count < self._max_retries:
-            # Send SYN segment
-            initial_seqnum = random.randint(0, 65535)
-            logger.debug("Initial sequence number: {} ".format(initial_seqnum))
-            syn_segment = self.build_segment_header(initial_seqnum, 0, syn_set=True)
-            self._lossy_layer.send_segment(syn_segment)
-            self._state = BTCPStates.SYN_SENT
-            logger.debug("SYN sent with seq: {}".format(initial_seqnum))
+        # Send SYN segment
+        initial_seqnum = random.randint(0, 65535)
+        logger.debug("Initial sequence number: {} ".format(initial_seqnum))
+        syn_segment = self.build_segment_header(initial_seqnum, 0, syn_set=True)
+        self._lossy_layer.send_segment(syn_segment)
+        self._state = BTCPStates.SYN_SENT
+        logger.debug("SYN sent with seq: {}".format(initial_seqnum))
 
+        while self._retry_count < self._max_retries:
             # Wait for SYN/ACK
             start_time = time.time()
             while time.time() - start_time < self._timeout:
                 logger.debug("Waiting for SYN/ACK")
+                logger.warning(self._state)
                 if self._state == BTCPStates.ESTABLISHED:
                     logger.debug("Connection established")
-                    return  # Connection established
+                    return True  # Connection established
                 time.sleep(0.1)
+
+            logger.debug("Retrying with duplicate SYN segment")
+            self._lossy_layer.send_segment(syn_segment)
+            self._state = BTCPStates.SYN_SENT
+            logger.debug("Retry: {}".format(self._retry_count))
 
             self._retry_count += 1
 
         logger.error("Failed to establish connection. Aborting connect.")
         self.close()
+        return False
 
     def send(self, data):
         """Send data originating from the application in a reliable way to the server."""

@@ -10,7 +10,6 @@ import random
 
 logger = logging.getLogger(__name__)
 
-##
 
 class BTCPServerSocket(BTCPSocket):
     def __init__(self, window, timeout):
@@ -60,8 +59,8 @@ class BTCPServerSocket(BTCPSocket):
 
         elif self._state == BTCPStates.SYN_RCVD:
             if ack_set:
-                logger.info("Connection established")
                 logger.debug("ACK received with seq: {}, ack: {}, connection established".format(seqnum, acknum))
+                logger.info("Connection established")
                 self._seq = acknum
                 self._state = BTCPStates.ESTABLISHED
 
@@ -147,7 +146,6 @@ class BTCPServerSocket(BTCPSocket):
         TIMER_TICK milliseconds. Defaults to 100ms, can be set in constants.py.
         """
         logger.debug("lossy_layer_tick called")
-        self._expire_timers()
 
     def _start_timer(self):
         if not self._example_timer:
@@ -175,7 +173,12 @@ class BTCPServerSocket(BTCPSocket):
         """
         logger.debug("accept called")
         self._state = BTCPStates.ACCEPTING
-        self._start_timer()
+
+        while not self._state == BTCPStates.ESTABLISHED:
+            logger.debug("Waiting for connection")
+            time.sleep(0.1)
+
+        return True
 
     def recv(self):
         """Return data that was received from the client to the application in

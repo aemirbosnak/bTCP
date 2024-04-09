@@ -54,7 +54,7 @@ def btcp_file_transfer_server():
                         type=int, default=100)
     parser.add_argument("-t", "--timeout",
                         help="Define bTCP timeout in milliseconds",
-                        type=int, default=120)
+                        type=int, default=100)
     parser.add_argument("-o", "--output",
                         help="Where to store the file",
                         default="output.file")
@@ -74,13 +74,9 @@ def btcp_file_transfer_server():
     logger.info("Creating server socket")
     s = BTCPServerSocket(args.window, args.timeout)
 
-    # Accept the connection. By default this doesn't actually do anything: our
-    # rudimentary implementation relies on you starting the server before the
-    # client and just dumps all segment contents directly into a file. No
-    # handshake is performed.
     logger.info("Accepting")
-    s.accept()
-    logger.info("Accepted(?)")
+    if s.accept():
+        logger.info("Accepted")
 
     # Actually open the output file. Warning: will overwrite existing files.
     logger.info("Opening file")
