@@ -195,17 +195,13 @@ class BTCPServerSocket(BTCPSocket):
         self._state = BTCPStates.ACCEPTING
         self._start_timer()
 
-        while self._retry_count < self._max_retries:
-            while not self._timer_expired():
-                logger.debug("Waiting for connection")
-                if self._state == BTCPStates.SYN_RCVD:
-                    return True     # Connection established
-                time.sleep(0.1)
-            self._retry_count += 1
+        # Close connection after a minute maybe
 
-        logger.error("Failed to establish connection. Aborting connect.")
-        self.close()
-        return False
+        while not self._state == BTCPStates.ESTABLISHED:
+            logger.debug("Waiting for connection")
+            time.sleep(0.1)
+
+        return True
 
     def recv(self):
         """Return data that was received from the client to the application in
